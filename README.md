@@ -29,6 +29,7 @@
 - [Setup & Configuration](#setup--configuration)
   - [The `.env` File](#the-env-file)
   - [`.env` Reference (Every Key Explained)](#env-reference-every-key-explained)
+  - [Bot Identities](#bot-identities)
   - [Supported LLM Providers](#supported-llm-providers)
   - [Getting API Keys](#getting-api-keys)
 - [Commands](#commands)
@@ -49,7 +50,7 @@
 
 PokerCLI is a **terminal-based Texas Hold'em poker game** where you (the human) sit at **Seat 1** and every other seat is controlled by an **LLM** — OpenAI, Anthropic, OpenRouter, NVIDIA NIM, or any OpenAI-compatible endpoint.
 
-It's also a **backtesting engine**: run thousands of hands with mixed LLM + rule-bot lineups, get full analytics (VPIP, PFR, 3-bet rate, PnL, max drawdown, risk of ruin), and export results to CSV or JSON.
+It's also a **backtesting engine**: run thousands of hands with mixed LLM + rule-bot lineups, get full analytics (VPIP, PFR, 3-bet rate, PnL, max drawdown, risk of ruin(via kelly Criterion)), and export results to CSV or JSON.
 
 ```
  ____       _             ____ _     ___
@@ -241,12 +242,13 @@ For each opponent seat (seat number `N`), seven keys configure the LLM:
 |---|---|---|---|
 | `POKER_SEAT_N_TYPE` | Controller type | `llm` | ✅ |
 | `POKER_SEAT_N_NAME` | Display name | `GPT-4o Bot` | ✅ |
+| `POKER_SEAT_N_IDENTITY` | Bot poker persona | `nina` | Optional |
 | `POKER_SEAT_N_PROVIDER` | LLM provider | `openai` | ✅ |
 | `POKER_SEAT_N_MODEL` | Model ID | `gpt-4o` | ✅ |
 | `POKER_SEAT_N_API_KEY` | API key | `sk-...` | ✅ |
 | `POKER_SEAT_N_TIMEOUT_S` | Timeout in seconds | `30` | ✅ |
 | `POKER_SEAT_N_TEMPERATURE` | LLM temperature (`0` = deterministic) | `0` | ✅ |
-| `POKER_SEAT_N_BASE_URL` | Custom endpoint URL | `https://api.example.com/v1` | Only for `openai-compatible` |
+| `POKER_SEAT_N_BASE_URL` | Custom endpoint URL (defaults per provider) | `https://api.openai.com/v1` | Optional |
 
 **Example `.env` for a 3-player table (you + 2 bots):**
 
@@ -258,20 +260,41 @@ POKER_MAX_HANDS=25
 
 POKER_SEAT_2_TYPE=llm
 POKER_SEAT_2_NAME=OpenRouter GPT
+POKER_SEAT_2_IDENTITY=ada
 POKER_SEAT_2_PROVIDER=openrouter
 POKER_SEAT_2_MODEL=openai/gpt-4o
 POKER_SEAT_2_API_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxx
 POKER_SEAT_2_TIMEOUT_S=30
 POKER_SEAT_2_TEMPERATURE=0
+POKER_SEAT_2_BASE_URL=https://openrouter.ai/api/v1
 
 POKER_SEAT_3_TYPE=llm
 POKER_SEAT_3_NAME=NVIDIA Llama
+POKER_SEAT_3_IDENTITY=nina
 POKER_SEAT_3_PROVIDER=nvidia
 POKER_SEAT_3_MODEL=nvidia/llama-3.1-nemotron-nano-8b-v1
 POKER_SEAT_3_API_KEY=nvapi-xxxxxxxxxxxxxxxxxxxxxxxx
 POKER_SEAT_3_TIMEOUT_S=30
 POKER_SEAT_3_TEMPERATURE=0
+POKER_SEAT_3_BASE_URL=https://integrate.api.nvidia.com/v1
 ```
+
+### Bot Identities
+
+Each LLM seat can be assigned a poker persona via the `POKER_SEAT_N_IDENTITY` key in `.env`. The identity's description is injected into the LLM's system prompt, shaping how the bot plays.
+
+Six identities are included out of the box:
+
+| Key | Name | Style | Description |
+|---|---|---|---|
+| `nina` | Nina Tight | tight-aggressive | Only enters pots with premium hands (big pairs, big aces), but bets and raises aggressively when she plays. Rarely limps; almost never calls without a strong draw or made hand. |
+| `marco` | Marco | loose-passive | Sees many flops with speculative hands like suited connectors and small pairs. Prefers calling to raising. Rarely bluffs and tends to give up when he misses the flop. |
+| `viktor` | Viktor Volkov | loose-aggressive | Plays many hands and applies constant pressure with bets and raises. Bluffs frequently, steals pots when opponents show weakness, 3-bets light, and floats flops. |
+| `ada` | Ada | balanced (GTO-ish) | Plays a balanced, GTO-oriented style. Mixes up ranges and actions to be unpredictable. Value-bets thinly, makes disciplined folds, and varies play by position. Bluffs at the right frequencies. |
+| `jacey` | Jacey | limp-trap | An extreme limper who enters almost every pot preflop with any two cards. Rarely raises or 3-bets without a true premium. Postflop plays passively until hitting a hand, then suddenly overbets the pot for maximum value. Folds easily to aggression when she misses. |
+| `sayoko` | Sayoko | unpredictable | A top champion who is neat and disciplined when the situation demands it, but equally capable of opening up and playing loose, splashy poker when sensing weakness. Unpredictable bet sizing, occasional limp-traps with monsters, and ruthless exploitation of opponent tendencies. |
+
+If no identity is set, the LLM uses a generic poker prompt without any specific persona.
 
 ### Supported LLM Providers
 

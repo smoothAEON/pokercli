@@ -169,3 +169,73 @@ def test_odd_chip_goes_left_of_button_when_all_players_are_all_in() -> None:
     assert state.seats[0].stack == 8
     assert state.seats[1].stack == 7
     assert state.seats[2].stack == 0
+
+
+def test_busted_player_stale_state_does_not_leak_into_next_hand() -> None:
+    game = PokerGame(GameConfig(seat_count=3, starting_stack=500))
+    game.start_hand()
+    game.seats[1].stack = 0
+    game.seats[1].total_commitment = 8450
+    game.seats[1].street_commitment = 8450
+    game.seats[1].all_in = True
+    game.seats[1].hole_cards = cards(["9c", "9s"])
+    game.seats[1].stack_at_hand_start = 8450
+    game.seats[1].folded = False
+
+    state2 = game.start_hand()
+
+    assert game.seats[1].hole_cards is None
+    assert game.seats[1].total_commitment == 0
+    assert game.seats[1].street_commitment == 0
+    assert game.seats[1].all_in is False
+    assert game.seats[1].stack_at_hand_start == 0
+
+    pots = game._side_pots()  # noqa: SLF001
+    for pot in pots:
+        assert 1 not in pot.eligible_seats, f"busted seat 1 should not be in pot {pot.index}"
+
+    contenders = [s for s, p in state2.seats.items() if p.hole_cards is not None and not p.folded]
+    assert 1 not in contenders
+
+
+def test_can_start_hand_false_when_fewer_than_two_live() -> None:
+    from pokercli.engine.game import PokerRuleError
+
+    game = PokerGame(GameConfig(seat_count=3, starting_stack=500))
+    game.seats[1].stack = 0
+    game.seats[2].stack = 0
+    assert game.can_start_hand() is False
+    try:
+        game.start_hand()
+        raise AssertionError("Expected PokerRuleError")
+    except PokerRuleError:
+        pass
+
+
+def test_live_seats_excludes_busted_players() -> None:
+    game = PokerGame(GameConfig(seat_count=3, starting_stack=500))
+    assert game.live_seats() == [0, 1, 2]
+    game.seats[1].stack = 0
+    assert game.live_seats() == [0, 2]
+    game.seats[0].stack = 0
+    assert game.live_seats() == [2]
+
+
+def test_start_hand_resets_all_players_not_just_live_ones() -> None:
+    game = PokerGame(GameConfig(seat_count=3, starting_stack=500))
+    game.seats[1].stack = 0
+    game.seats[1].hole_cards = cards(["As", "Ad"])
+    game.seats[1].all_in = True
+    game.seats[1].total_commitment = 500
+    game.seats[1].street_commitment = 500
+    game.seats[1].stack_at_hand_start = 8450
+    game.seats[1].folded = False
+
+    game.start_hand()
+
+    assert game.seats[1].hole_cards is None
+    assert game.seats[1].all_in is False
+    assert game.seats[1].total_commitment == 0
+    assert game.seats[1].street_commitment == 0
+    assert game.seats[1].stack_at_hand_start == 0
+    assert game.seats[1].folded is False

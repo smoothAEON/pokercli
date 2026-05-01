@@ -11,6 +11,7 @@ from typing import Any, Protocol
 import questionary
 
 from pokercli.engine import ActionDecision, ActionType, LegalAction, SeatView, evaluate_cards
+from pokercli.identities import lookup_identity
 from pokercli.llm import LLMProviderError, LLMTurnRequest, LLMTurnResponse, ProviderAdapter
 
 
@@ -223,6 +224,7 @@ class LLMController:
         max_failures: int = 2,
         failure_mode: str = "fallback",
         status_callback: Callable[[LLMStatusEvent], None] | None = None,
+        identity: str | None = None,
     ) -> None:
         self.seat_name = seat_name
         self.provider = provider
@@ -230,6 +232,8 @@ class LLMController:
         self.max_failures = max_failures
         self.failure_mode = failure_mode
         self.status_callback = status_callback
+        self.identity = identity
+        self._identity_data = lookup_identity(identity)
         self.failure_count = 0
         self.disabled = False
         self.last_error: str | None = None
@@ -349,11 +353,15 @@ class LLMController:
 
     def _build_request(self, view: SeatView) -> LLMTurnRequest:
         payload = json.dumps(view.to_prompt_payload(), indent=2)
-        system = (
+        base = (
             "You are a poker seat controller for No-Limit Texas Hold'em. "
             "Never invent hidden cards. Respond with strict JSON only: "
             '{"action":"fold|check|call|bet|raise|all-in","amount":number|null,"reason":"short reason"}.'
         )
+        if self._identity_data is not None:
+            system = f"{self._identity_data.description}\n\n{base}"
+        else:
+            system = base
         user = f"Seat view:\n{payload}\nChoose one legal action."
         return LLMTurnRequest(
             system_prompt=system,

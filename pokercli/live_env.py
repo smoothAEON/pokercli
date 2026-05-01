@@ -16,6 +16,7 @@ DEFAULT_MAX_HANDS = 50
 DEFAULT_TIMEOUT_S = 30.0
 DEFAULT_TEMPERATURE = 0.0
 SUPPORTED_PROVIDERS = ("openai", "anthropic", "openrouter", "nvidia", "openai-compatible")
+SUPPORTED_IDENTITY_KEYS = ("nina", "marco", "viktor", "ada")
 
 
 @dataclass(slots=True)
@@ -28,6 +29,7 @@ class LiveSeatConfig:
     base_url: str | None = None
     timeout_s: float = DEFAULT_TIMEOUT_S
     temperature: float = DEFAULT_TEMPERATURE
+    identity: str | None = None
 
     def to_profile(self) -> ProviderProfile:
         return ProviderProfile(
@@ -106,7 +108,7 @@ def default_base_url_for_provider(provider: str) -> str | None:
 def inspect_seat(values: dict[str, str], seat_number: int) -> tuple[LiveSeatConfig | None, list[str]]:
     relevant_keys = {
         suffix: values.get(seat_key(seat_number, suffix))
-        for suffix in ("TYPE", "NAME", "PROVIDER", "MODEL", "API_KEY", "BASE_URL", "TIMEOUT_S", "TEMPERATURE")
+        for suffix in ("TYPE", "NAME", "PROVIDER", "MODEL", "API_KEY", "BASE_URL", "TIMEOUT_S", "TEMPERATURE", "IDENTITY")
     }
     provider = (relevant_keys["PROVIDER"] or "").strip().lower()
     required = ["TYPE", "NAME", "PROVIDER", "MODEL", "API_KEY", "TIMEOUT_S", "TEMPERATURE"]
@@ -135,6 +137,7 @@ def inspect_seat(values: dict[str, str], seat_number: int) -> tuple[LiveSeatConf
             base_url=base_url,
             timeout_s=timeout_s,
             temperature=temperature,
+            identity=(relevant_keys.get("IDENTITY") or "").strip().lower() or None,
         ),
         [],
     )
@@ -152,6 +155,8 @@ def seat_updates(seat_config: LiveSeatConfig) -> dict[str, str]:
     }
     if seat_config.base_url:
         updates[seat_key(seat_config.seat_number, "BASE_URL")] = seat_config.base_url
+    if seat_config.identity:
+        updates[seat_key(seat_config.seat_number, "IDENTITY")] = seat_config.identity
     return updates
 
 

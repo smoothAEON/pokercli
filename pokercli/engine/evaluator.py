@@ -82,8 +82,38 @@ def evaluate_cards(cards: Sequence[Card]) -> tuple[int, ...]:
     return best
 
 
+_RANK_NAME: dict[int, str] = {
+    14: "Ace", 13: "King", 12: "Queen", 11: "Jack", 10: "Ten",
+    9: "Nine", 8: "Eight", 7: "Seven", 6: "Six", 5: "Five", 4: "Four", 3: "Three", 2: "Two",
+}
+_RANK_NAME_PLURAL: dict[int, str] = {
+    14: "Aces", 13: "Kings", 12: "Queens", 11: "Jacks", 10: "Tens",
+    9: "Nines", 8: "Eights", 7: "Sevens", 6: "Sixes", 5: "Fives", 4: "Fours", 3: "Threes", 2: "Twos",
+}
+
+
 def describe_rank(rank: tuple[int, ...]) -> str:
     hand_class = rank[0]
     if hand_class not in HAND_CLASS_NAMES:
         raise ValueError(f"Unknown hand class: {hand_class}")
-    return HAND_CLASS_NAMES[hand_class]
+    base = HAND_CLASS_NAMES[hand_class]
+
+    if hand_class == 0:  # High Card
+        return f"{base}, {_RANK_NAME.get(rank[1], '?')}-high"
+    if hand_class == 1:  # One Pair
+        return f"{base}, {_RANK_NAME_PLURAL.get(rank[1], '?')}"
+    if hand_class == 2:  # Two Pair
+        return f"{base}, {_RANK_NAME_PLURAL.get(rank[1], '?')} and {_RANK_NAME_PLURAL.get(rank[2], '?')}"
+    if hand_class == 3:  # Three of a Kind
+        return f"{base}, {_RANK_NAME_PLURAL.get(rank[1], '?')}"
+    if hand_class == 4:  # Straight
+        return f"{base}, {_RANK_NAME.get(rank[1], '?')}-high"
+    if hand_class == 5:  # Flush
+        return f"{base}, {_RANK_NAME.get(rank[1], '?')}-high"
+    if hand_class == 6:  # Full House
+        return f"{base}, {_RANK_NAME_PLURAL.get(rank[1], '?')} full of {_RANK_NAME_PLURAL.get(rank[2], '?')}"
+    if hand_class == 7:  # Four of a Kind
+        return f"{base}, {_RANK_NAME_PLURAL.get(rank[1], '?')}"
+    if hand_class == 8:  # Straight Flush
+        return f"{base}, {_RANK_NAME.get(rank[1], '?')}-high"
+    return base

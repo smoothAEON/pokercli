@@ -124,7 +124,7 @@ def test_render_hand_history_adds_result_labels_and_keeps_hidden_loser_hidden() 
     serialized = history.to_dict()
 
     assert "result=won" in rendered
-    assert "hand=Four of a Kind" in rendered
+    assert "hand=Four of a Kind, Aces" in rendered
     assert "Seat 2 Seat 2: start=1000 end=750 net=-250 result=lost cards=[hidden]" in rendered
     assert "Full House" not in rendered
     assert serialized["board"] == ["AS", "KD", "QC", "JC", "TD"]
@@ -138,7 +138,7 @@ def test_render_hand_history_marks_split_pot_winners_as_draw() -> None:
     rendered = render_hand_history(history)
 
     assert rendered.count("result=draw") == 2
-    assert rendered.count("hand=Straight") == 2
+    assert rendered.count("hand=Straight, Ace-high") == 2
 
 
 def test_render_session_report_includes_summary_actions_awards_and_full_cards() -> None:
@@ -162,4 +162,4 @@ def test_render_session_report_includes_summary_actions_awards_and_full_cards() 
     assert "Hand Details:" in report
     assert "Actions:" in report
     assert "Awards:" in report
-    assert "cards=9♠ 9♣ hand=Full House" in report
+    assert "cards=9♠ 9♣ hand=Full House, Aces full of Kings" in report

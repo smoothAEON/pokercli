@@ -16,6 +16,7 @@ from pokercli.analytics import analytics_summary, compute_seat_analytics, write_
 from pokercli.config import AppConfig, default_database_path, default_llm_debug_dir, load_config
 from pokercli.debug_logs import SessionLLMDebugLogger
 from pokercli.engine import ActionDecision, GameConfig, PokerGame
+from pokercli.identities import list_identities, lookup_identity
 from pokercli.live_env import (
     DEFAULT_HUMAN_SEAT,
     DEFAULT_MAX_HANDS,
@@ -24,6 +25,7 @@ from pokercli.live_env import (
     DEFAULT_TEMPERATURE,
     DEFAULT_TIMEOUT_S,
     LiveSeatConfig,
+    SUPPORTED_IDENTITY_KEYS,
     default_base_url_for_provider,
     default_model_for_provider,
     env_path,
@@ -155,7 +157,7 @@ def _prompt_float_required(message: str, *, default: float) -> float:
 def _seed_seat_config(env_values: dict[str, str], seat_number: int) -> LiveSeatConfig | None:
     values = {
         suffix: env_values.get(seat_key(seat_number, suffix))
-        for suffix in ("NAME", "PROVIDER", "MODEL", "API_KEY", "BASE_URL", "TIMEOUT_S", "TEMPERATURE")
+        for suffix in ("NAME", "PROVIDER", "MODEL", "API_KEY", "BASE_URL", "TIMEOUT_S", "TEMPERATURE", "IDENTITY")
     }
     if not any(values.values()):
         return None
@@ -177,6 +179,7 @@ def _seed_seat_config(env_values: dict[str, str], seat_number: int) -> LiveSeatC
         base_url=(values["BASE_URL"] or default_base_url_for_provider(provider) or "").strip() or default_base_url_for_provider(provider),
         timeout_s=timeout_s,
         temperature=temperature,
+        identity=(values.get("IDENTITY") or "").strip().lower() or None,
     )
 
 
@@ -199,6 +202,24 @@ def _prompt_seat_config(seat_number: int, existing: LiveSeatConfig | None = None
         default=existing.name if existing else f"Bot {seat_number}",
         existing=existing.name if existing else None,
     )
+    identity_choices = [{"name": "none (custom play)", "value": ""}]
+    for ident in list_identities():
+        identity_choices.append({"name": f"{ident['name']} ({ident['style']})", "value": ident["key"]})
+    if existing and existing.identity:
+        existing_ident = lookup_identity(existing.identity)
+        existing_display = f"{existing_ident.name} ({existing_ident.style})" if existing_ident else existing.identity
+    else:
+        existing_display = ""
+    identity_raw = questionary.select(
+        f"Seat {seat_number} identity", choices=identity_choices
+    ).ask()
+    if identity_raw is None:
+        raise typer.Exit(code=1)
+    identity = identity_raw.strip().lower() or None
+    if identity:
+        resolved = lookup_identity(identity)
+        if resolved:
+            console.print(f"  Using {resolved.name} identity")
     model_default = (
         existing.model if existing and existing.provider == provider else default_model_for_provider(provider)
     )
@@ -233,6 +254,7 @@ def _prompt_seat_config(seat_number: int, existing: LiveSeatConfig | None = None
         base_url=base_url,
         timeout_s=timeout_s,
         temperature=temperature,
+        identity=identity,
     )
 
 
@@ -304,6 +326,7 @@ def _build_live_llm_controller(
         provider=provider,
         failure_mode="raise",
         status_callback=status_callback,
+        identity=seat_config.identity,
     )
 
 
@@ -399,8 +422,9 @@ def _controllers_from_env_lineup(
         seat_config = _require_env_seat_config_for_simulation(env_values, env_seat)
         name = spec.get("name", seat_config.name)
         names.append(name)
+        identity = spec.get("identity", seat_config.identity)
         provider = _provider_from_live_seat_config(seat_config, force_temperature_zero=force_temperature_zero)
-        controllers[seat] = LLMController(seat_name=name, provider=provider)
+        controllers[seat] = LLMController(seat_name=name, provider=provider, identity=identity)
     return names, controllers
 
 

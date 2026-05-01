@@ -126,8 +126,7 @@ class PokerGame:
         self.hand_no += 1
         self.button_seat = self._next_live_after(self.button_seat)
         for player in self.seats.values():
-            if player.stack > 0:
-                player.reset_for_hand()
+            player.reset_for_hand()
         live = self.live_seats()
         if len(live) == 2:
             small_blind_seat = self.button_seat

@@ -167,7 +167,7 @@ def _read_single_session_report(base_dir: Path) -> tuple[Path, str]:
 def test_setup_command_writes_repo_root_env(monkeypatch, tmp_path: Path) -> None:
     env_file, _ = _patch_repo_root_runtime(monkeypatch, tmp_path)
     monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "100", "50", "Bot 2", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["secret"]))
     result = runner.invoke(app, ["setup"])
     assert result.exit_code == 0
@@ -185,7 +185,7 @@ def test_setup_command_writes_repo_root_env(monkeypatch, tmp_path: Path) -> None
 def test_setup_command_honors_poker_env_path_override(monkeypatch, tmp_path: Path) -> None:
     env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
     monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "100", "50", "Bot 2", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["secret"]))
     result = runner.invoke(app, ["setup"])
     assert result.exit_code == 0
@@ -206,7 +206,7 @@ def test_setup_command_accepts_nvidia_provider(monkeypatch, tmp_path: Path) -> N
         "pokercli.cli.questionary.text",
         PromptSequence(["2", "100", "50", "Bot 2", "nvidia/llama-3.1-nemotron-nano-8b-v1", "30", "0"]),
     )
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["nvidia"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["nvidia", ""]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["nvidia-secret"]))
     result = runner.invoke(app, ["setup"])
     assert result.exit_code == 0
@@ -231,7 +231,7 @@ def test_simulate_and_replay_commands_smoke(monkeypatch, tmp_path: Path) -> None
 def test_play_prompts_for_player_count_when_seats_not_provided(monkeypatch, tmp_path: Path) -> None:
     env_file, db_path = _patch_runtime_paths(monkeypatch, tmp_path)
     monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "Bot 2", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["secret"]))
     monkeypatch.setattr("pokercli.cli.questionary.confirm", lambda *args, **kwargs: DummyPrompt(False))
     monkeypatch.setattr("pokercli.cli.provider_from_profile", lambda profile, api_key: DummyProvider(profile))
@@ -280,7 +280,7 @@ def test_play_with_explicit_seats_skips_player_count_prompt(monkeypatch, tmp_pat
         return text_prompts(message, *args, **kwargs)
 
     monkeypatch.setattr("pokercli.cli.questionary.text", prompt_text)
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["secret"]))
     monkeypatch.setattr("pokercli.cli.questionary.confirm", lambda *args, **kwargs: DummyPrompt(False))
     monkeypatch.setattr("pokercli.cli.provider_from_profile", lambda profile, api_key: DummyProvider(profile))
@@ -305,7 +305,7 @@ def test_play_partial_env_prompts_only_missing_seat(monkeypatch, tmp_path: Path)
         configs=[_seat_config(2)],
     )
     monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["Bot 3", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["secret-3"]))
     monkeypatch.setattr("pokercli.cli.questionary.confirm", lambda *args, **kwargs: DummyPrompt(False))
     monkeypatch.setattr("pokercli.cli.provider_from_profile", lambda profile, api_key: DummyProvider(profile))
@@ -320,7 +320,7 @@ def test_play_partial_env_prompts_only_missing_seat(monkeypatch, tmp_path: Path)
 def test_play_cancelled_onboarding_exits_without_env(monkeypatch, tmp_path: Path) -> None:
     env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
     monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["Bot 2", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence([""]))
     result = runner.invoke(app, ["play", "--seats", "2", "--max-hands", "1"])
     assert result.exit_code == 1
@@ -332,7 +332,7 @@ def test_play_cancelled_onboarding_without_existing_env_does_not_write_partial_d
 ) -> None:
     env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
     monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "Bot 2", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence([""]))
     result = runner.invoke(app, ["play", "--max-hands", "1"])
     assert result.exit_code == 1

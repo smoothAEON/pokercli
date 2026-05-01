@@ -209,3 +209,57 @@ def test_provider_factory_supports_nvidia() -> None:
     )
     provider = provider_from_profile(profile, "secret")
     assert isinstance(provider, NVIDIAProvider)
+
+
+class PromptCapturingProvider:
+    def __init__(self, response: str = '{"action":"check","amount":null,"reason":"fine"}'):
+        self.profile = ProviderProfile(
+            name="stub", provider="openai", model="stub-model", api_key_env="TEST_KEY",
+        )
+        self.captured_prompts: list[str] = []
+        self._response = response
+
+    def complete_turn(self, request):
+        self.captured_prompts.append(request.system_prompt)
+        return LLMTurnResponse(
+            provider="stub", model="stub-model", content=self._response,
+            raw_payload={"content": self._response}, latency_ms=1,
+            provider_request=ProviderRequestDebug(url="https://x", body={}),
+            provider_response=ProviderResponseDebug(status_code=200, body={}),
+        )
+
+
+def test_llm_controller_injects_identity_into_system_prompt() -> None:
+    provider = PromptCapturingProvider()
+    controller = LLMController(seat_name="Nina Tight", provider=provider, identity="nina")
+    controller.act(make_view())
+    prompt = provider.captured_prompts[0]
+    assert "Nina" in prompt
+    assert "tight-aggressive" in prompt
+    assert "premium hands" in prompt
+
+
+def test_llm_controller_without_identity_uses_generic_prompt() -> None:
+    provider = PromptCapturingProvider()
+    controller = LLMController(seat_name="Bot 2", provider=provider, identity=None)
+    controller.act(make_view())
+    prompt = provider.captured_prompts[0]
+    assert "poker seat controller" in prompt
+    assert "tight-aggressive" not in prompt
+
+
+def test_llm_controller_with_unknown_identity_falls_back_to_generic() -> None:
+    provider = PromptCapturingProvider()
+    controller = LLMController(seat_name="Mystery", provider=provider, identity="nonexistent")
+    controller.act(make_view())
+    prompt = provider.captured_prompts[0]
+    assert "poker seat controller" in prompt
+    assert "Mystery" not in prompt
+
+
+def test_lookup_identity_returns_none_for_unknown_key() -> None:
+    from pokercli.identities import lookup_identity
+    assert lookup_identity("nonesuch") is None
+    assert lookup_identity(None) is None
+    assert lookup_identity("") is None
+    assert lookup_identity("nina").name == "Nina Tight"
