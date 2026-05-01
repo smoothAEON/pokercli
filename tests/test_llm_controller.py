@@ -11,6 +11,35 @@ from pokercli.llm import LLMTurnRequest, LLMTurnResponse, ProviderProfile, Provi
 from pokercli.llm.providers import LLMProviderError, NVIDIAProvider, OpenAIProvider, OpenRouterProvider, provider_from_profile
 
 
+def make_decision_payload(
+    *,
+    action: str = "check",
+    amount: int | None = None,
+    confidence: float = 0.82,
+    hand_strength: str = "ace high with overcards",
+    draws: str = "none",
+    pot_odds: str = "check available",
+    spr: str = "3.33",
+    reasoning_summary: str = "Take the free option and realize equity.",
+    risk_flag: str = "low",
+) -> dict[str, object]:
+    return {
+        "action": action,
+        "amount": amount,
+        "confidence": confidence,
+        "hand_strength": hand_strength,
+        "draws": draws,
+        "pot_odds": pot_odds,
+        "spr": spr,
+        "reasoning_summary": reasoning_summary,
+        "risk_flag": risk_flag,
+    }
+
+
+def decision_json(**overrides: object) -> str:
+    return json.dumps(make_decision_payload(**overrides))
+
+
 def make_view() -> SeatView:
     return SeatView(
         seat=0,
@@ -88,12 +117,13 @@ class RaisingProvider:
 
 
 def test_llm_controller_retries_malformed_json_once() -> None:
+    valid_response = decision_json()
     controller = LLMController(
         seat_name="Seat 1",
         provider=StubProvider(
             responses=[
                 "not-json",
-                '{"action":"check","amount":null,"reason":"fine"}',
+                valid_response,
             ]
         ),
     )
@@ -103,15 +133,65 @@ def test_llm_controller_retries_malformed_json_once() -> None:
     assert len(controller.turn_logs) == 2
     assert controller.turn_logs[0].request_kind == "initial"
     assert controller.turn_logs[0].outcome == "invalid_json"
+    assert controller.turn_logs[0].decision is None
     assert controller.turn_logs[0].provider_request["body"]["messages"][0]["role"] == "user"
     assert controller.turn_logs[0].provider_response["body"]["content"] == "not-json"
     assert controller.turn_logs[1].request_kind == "retry"
     assert controller.turn_logs[1].outcome == "accepted"
+    assert controller.turn_logs[1].decision == make_decision_payload()
     assert controller.turn_logs[1].turn_response == {
         "provider": "stub",
         "model": "stub-model",
-        "content": '{"action":"check","amount":null,"reason":"fine"}',
+        "content": valid_response,
     }
+
+
+def test_llm_controller_retries_when_required_metric_is_missing() -> None:
+    invalid_payload = make_decision_payload()
+    del invalid_payload["confidence"]
+    valid_response = decision_json()
+    controller = LLMController(
+        seat_name="Seat 1",
+        provider=StubProvider(responses=[json.dumps(invalid_payload), valid_response]),
+    )
+
+    decision = controller.act(make_view())
+
+    assert decision.normalized_action() == ActionType.CHECK
+    assert controller.provider.calls == 2
+    assert len(controller.turn_logs) == 2
+    assert controller.turn_logs[0].outcome == "invalid_json"
+    assert controller.turn_logs[0].decision is None
+    assert "confidence" in controller.turn_logs[0].error
+    assert controller.turn_logs[1].outcome == "accepted"
+    assert controller.turn_logs[1].decision == make_decision_payload()
+
+
+def test_llm_controller_logs_illegal_but_well_formed_decision() -> None:
+    illegal_response = decision_json(
+        action="bet",
+        amount=50,
+        reasoning_summary="Probe small into the field.",
+        risk_flag="medium",
+    )
+    valid_response = decision_json()
+    controller = LLMController(
+        seat_name="Seat 1",
+        provider=StubProvider(responses=[illegal_response, valid_response]),
+    )
+
+    decision = controller.act(make_view())
+
+    assert decision.normalized_action() == ActionType.CHECK
+    assert len(controller.turn_logs) == 2
+    assert controller.turn_logs[0].outcome == "illegal_action"
+    assert controller.turn_logs[0].decision == make_decision_payload(
+        action="bet",
+        amount=50,
+        reasoning_summary="Probe small into the field.",
+        risk_flag="medium",
+    )
+    assert controller.turn_logs[1].outcome == "accepted"
 
 
 def test_llm_controller_disables_after_repeated_failures() -> None:
@@ -149,6 +229,7 @@ def test_llm_controller_logs_provider_failure_debug_payloads() -> None:
     assert len(controller.turn_logs) == 1
     log = controller.turn_logs[0]
     assert log.outcome == "provider_error"
+    assert log.decision is None
     assert log.provider_request["url"] == "https://example.invalid/v1/chat/completions"
     assert log.provider_response == {"status_code": 503, "body": {"error": "boom"}}
     assert "Authorization" not in json.dumps(log.to_dict())
@@ -224,7 +305,7 @@ def test_openrouter_provider_sets_app_attribution_headers(monkeypatch) -> None:
             return httpx.Response(
                 status_code=200,
                 request=request,
-                json={"choices": [{"message": {"content": '{"action":"check","amount":null,"reason":"ok"}'}}]},
+                json={"choices": [{"message": {"content": decision_json(reasoning_summary="ok")}}]},
             )
 
     monkeypatch.setattr("pokercli.llm.providers.httpx.Client", FakeClient)
@@ -265,7 +346,7 @@ def test_provider_factory_supports_nvidia() -> None:
 
 
 class PromptCapturingProvider:
-    def __init__(self, response: str = '{"action":"check","amount":null,"reason":"fine"}'):
+    def __init__(self, response: str = decision_json()):
         self.profile = ProviderProfile(
             name="stub", provider="openai", model="stub-model", api_key_env="TEST_KEY",
         )

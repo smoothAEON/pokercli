@@ -153,6 +153,22 @@ class RuleBotController:
         return self.random.choice(choices)
 
 
+LLM_ACTION_VALUES = (
+    ActionType.FOLD.value,
+    ActionType.CHECK.value,
+    ActionType.CALL.value,
+    ActionType.BET.value,
+    ActionType.RAISE.value,
+    ActionType.ALL_IN.value,
+)
+
+
+@dataclass(slots=True)
+class ParsedLLMDecision:
+    action_decision: ActionDecision
+    log_payload: dict[str, Any]
+
+
 @dataclass(slots=True)
 class LLMTurnLog:
     timestamp: str
@@ -171,6 +187,7 @@ class LLMTurnLog:
     provider_request: dict[str, Any]
     turn_response: dict[str, Any] | None
     provider_response: dict[str, Any]
+    decision: dict[str, Any] | None = None
     error: str | None = None
 
     def request_payload(self) -> dict[str, Any]:
@@ -194,6 +211,7 @@ class LLMTurnLog:
             "outcome": self.outcome,
             "error": self.error,
             "latency_ms": self.latency_ms,
+            "decision": self.decision,
             "turn_response": self.turn_response,
             "provider_response": self.provider_response,
         }
@@ -268,7 +286,7 @@ class LLMController:
                     )
                     raise
                 try:
-                    decision = self._parse_response(response.content)
+                    parsed_decision = self._parse_response(response.content)
                 except (TypeError, ValueError, json.JSONDecodeError) as exc:
                     error = f"Malformed JSON: {exc}"
                     self.turn_logs.append(
@@ -284,6 +302,7 @@ class LLMController:
                         )
                     )
                 else:
+                    decision = parsed_decision.action_decision
                     if _decision_is_legal(view, decision):
                         self.failure_count = 0
                         self.turn_logs.append(
@@ -296,6 +315,7 @@ class LLMController:
                                 outcome="accepted",
                                 error=None,
                                 response=response,
+                                decision=parsed_decision.log_payload,
                             )
                         )
                         self.last_error = None
@@ -312,6 +332,7 @@ class LLMController:
                             outcome="illegal_action",
                             error=error,
                             response=response,
+                            decision=parsed_decision.log_payload,
                         )
                     )
                 if attempt == 0:
@@ -356,7 +377,11 @@ class LLMController:
         base = (
             "You are a poker seat controller for No-Limit Texas Hold'em. "
             "Never invent hidden cards. Respond with strict JSON only: "
-            '{"action":"fold|check|call|bet|raise|all-in","amount":number|null,"reason":"short reason"}.'
+            '{"action":"fold|check|call|bet|raise|all-in","amount":number|null,'
+            '"confidence":0.0,"hand_strength":"string","draws":"string","pot_odds":"string",'
+            '"spr":"string","reasoning_summary":"short reason","risk_flag":"string"}. '
+            "Set amount to null for non-sizing actions. Use \"none\" for draws when no draw is present. "
+            "Compute spr as your current stack divided by the pot before acting."
         )
         if self._identity_data is not None:
             system = f"{self._identity_data.description}\n\n{base}"
@@ -369,11 +394,28 @@ class LLMController:
             response_schema={
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string"},
+                    "action": {"type": "string", "enum": list(LLM_ACTION_VALUES)},
                     "amount": {"type": ["integer", "null"]},
-                    "reason": {"type": "string"},
+                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "hand_strength": {"type": "string"},
+                    "draws": {"type": "string"},
+                    "pot_odds": {"type": "string"},
+                    "spr": {"type": "string"},
+                    "reasoning_summary": {"type": "string"},
+                    "risk_flag": {"type": "string"},
                 },
-                "required": ["action"],
+                "required": [
+                    "action",
+                    "amount",
+                    "confidence",
+                    "hand_strength",
+                    "draws",
+                    "pot_odds",
+                    "spr",
+                    "reasoning_summary",
+                    "risk_flag",
+                ],
+                "additionalProperties": False,
             },
             metadata={"seat": view.seat, "player_name": view.player_name},
         )
@@ -383,16 +425,77 @@ class LLMController:
         retry.user_prompt += f"\nYour previous response was invalid: {prior_response}\nError: {error}"
         return retry
 
-    def _parse_response(self, content: str) -> ActionDecision:
+    def _parse_response(self, content: str) -> ParsedLLMDecision:
         if not content:
             raise ValueError("LLM returned empty content")
         parsed = json.loads(content)
-        return ActionDecision(
-            parsed["action"],
-            amount=parsed.get("amount"),
+        if not isinstance(parsed, dict):
+            raise ValueError("LLM response must be a JSON object")
+        action = self._require_action(parsed, "action")
+        amount = self._require_int_or_none(parsed, "amount")
+        confidence = self._require_confidence(parsed, "confidence")
+        hand_strength = self._require_string(parsed, "hand_strength")
+        draws = self._require_string(parsed, "draws")
+        pot_odds = self._require_string(parsed, "pot_odds")
+        spr = self._require_string(parsed, "spr")
+        reasoning_summary = self._require_string(parsed, "reasoning_summary")
+        risk_flag = self._require_string(parsed, "risk_flag")
+        action_decision = ActionDecision(
+            action,
+            amount=amount,
             raw_input=content,
             source=self.provider.profile.name,
         )
+        action_decision.normalized_action()
+        return ParsedLLMDecision(
+            action_decision=action_decision,
+            log_payload={
+                "action": action,
+                "amount": amount,
+                "confidence": confidence,
+                "hand_strength": hand_strength,
+                "draws": draws,
+                "pot_odds": pot_odds,
+                "spr": spr,
+                "reasoning_summary": reasoning_summary,
+                "risk_flag": risk_flag,
+            },
+        )
+
+    def _require_action(self, payload: dict[str, Any], field_name: str) -> str:
+        action = self._require_string(payload, field_name)
+        if action not in LLM_ACTION_VALUES:
+            raise ValueError(f"Field '{field_name}' must be one of: {', '.join(LLM_ACTION_VALUES)}")
+        return action
+
+    def _require_string(self, payload: dict[str, Any], field_name: str) -> str:
+        if field_name not in payload:
+            raise ValueError(f"Missing required field '{field_name}'")
+        value = payload[field_name]
+        if not isinstance(value, str):
+            raise ValueError(f"Field '{field_name}' must be a string")
+        return value
+
+    def _require_int_or_none(self, payload: dict[str, Any], field_name: str) -> int | None:
+        if field_name not in payload:
+            raise ValueError(f"Missing required field '{field_name}'")
+        value = payload[field_name]
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"Field '{field_name}' must be an integer or null")
+        return value
+
+    def _require_confidence(self, payload: dict[str, Any], field_name: str) -> float:
+        if field_name not in payload:
+            raise ValueError(f"Missing required field '{field_name}'")
+        value = payload[field_name]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"Field '{field_name}' must be a number")
+        confidence = float(value)
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError(f"Field '{field_name}' must be between 0 and 1")
+        return confidence
 
     def _fallback_decision(self, view: SeatView) -> ActionDecision:
         legal = _legal_map(view)
@@ -416,6 +519,7 @@ class LLMController:
         error: str | None,
         response: LLMTurnResponse | None = None,
         provider_error: LLMProviderError | None = None,
+        decision: dict[str, Any] | None = None,
     ) -> LLMTurnLog:
         provider = self.provider.profile.provider
         model = self.provider.profile.model
@@ -459,5 +563,6 @@ class LLMController:
             provider_request=provider_request,
             turn_response=turn_response,
             provider_response=provider_response,
+            decision=decision,
             error=error,
         )

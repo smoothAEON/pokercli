@@ -54,7 +54,7 @@ class LoggingProvider:
 
     def complete_turn(self, request):
         self.calls += 1
-        content = '{"action":"check","amount":null,"reason":"fine"}'
+        content = decision_json()
         return LLMTurnResponse(
             provider=self.profile.provider,
             model=self.profile.model,
@@ -76,6 +76,35 @@ class LoggingProvider:
                 body={"choices": [{"message": {"content": content}}]},
             ),
         )
+
+
+def make_decision_payload(
+    *,
+    action: str = "check",
+    amount: int | None = None,
+    confidence: float = 0.78,
+    hand_strength: str = "ace high with backdoors",
+    draws: str = "none",
+    pot_odds: str = "check available",
+    spr: str = "3.33",
+    reasoning_summary: str = "Take the free option and continue.",
+    risk_flag: str = "low",
+) -> dict[str, object]:
+    return {
+        "action": action,
+        "amount": amount,
+        "confidence": confidence,
+        "hand_strength": hand_strength,
+        "draws": draws,
+        "pot_odds": pot_odds,
+        "spr": spr,
+        "reasoning_summary": reasoning_summary,
+        "risk_flag": risk_flag,
+    }
+
+
+def decision_json(**overrides: object) -> str:
+    return json.dumps(make_decision_payload(**overrides))
 
 
 def _patch_runtime_paths(monkeypatch, tmp_path: Path) -> tuple[Path, Path]:
@@ -480,7 +509,7 @@ def test_simulate_llm_lineup_rejects_incomplete_env_seat_fields(monkeypatch, tmp
 
 
 def test_simulate_debug_llm_log_writes_single_session_file(monkeypatch, tmp_path: Path) -> None:
-    env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
+    env_file, db_path = _patch_runtime_paths(monkeypatch, tmp_path)
     lineup_file = tmp_path / "lineup.json"
     _write_live_env(env_file, seats=2, human_seat=1, configs=[_seat_config(2)])
     lineup_file.write_text(
@@ -505,8 +534,13 @@ def test_simulate_debug_llm_log_writes_single_session_file(monkeypatch, tmp_path
     first_call = payload["calls"][0]
     assert first_call["request_kind"] == "initial"
     assert first_call["turn_request"]["metadata"]["seat"] == 0
+    assert first_call["decision"] == make_decision_payload()
     assert first_call["provider_request"]["url"] == "https://example.invalid/v1/chat/completions"
     assert first_call["provider_response"]["status_code"] == 200
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute("SELECT response_json FROM llm_turns LIMIT 1").fetchone()
+    assert row is not None
+    assert json.loads(row[0])["decision"] == make_decision_payload()
 
 
 def test_poker_debug_llm_env_var_enables_logging_and_flag_can_disable_it(monkeypatch, tmp_path: Path) -> None:

@@ -125,7 +125,7 @@ Cute little repo, surprisingly serious card logic. ✨
 | **Batch simulation** | Run thousands of hands with mixed LLM + rule-bot lineups. Seed the RNG and replay the nonsense later. |
 | **Full analytics** | VPIP, PFR, 3-bet rate, PnL, BB/100, showdown win rate, max drawdown, volatility, risk of ruin. |
 | **SQLite session storage** | Every hand, action, and LLM call gets stored, so you can replay past disasters at will. |
-| **LLM debug logging** | Optional per-session JSON logs with full request/response payloads, with secrets redacted. |
+| **LLM debug logging** | Optional per-session JSON logs with full request/response payloads and parsed decision data (confidence, hand strength, SPR, reasoning, risk flags), with secrets redacted. |
 | **Live LLM failure recovery** | If a bot API call fails, you can retry, reconfigure the seat, or shut the table down gracefully. |
 | **RuleBot fallback** | Every LLM seat has a built-in rule bot fallback for when the API gremlins show up. |
 | **Side pot support** | Multi-way all-ins with short stacks are handled correctly, because chaos still needs accounting. |
@@ -686,9 +686,46 @@ Each log file contains:
 - Latency in milliseconds
 - Normalized turn request (system prompt, user prompt, response schema)
 - Normalized turn response (content returned by the LLM)
+- Parsed decision payload (when the LLM returned a valid response):
+  - `action` — chosen action
+  - `amount` — bet/raise size (or null)
+  - `confidence` — self-reported confidence (0.0–1.0)
+  - `hand_strength` — bot's description of its hand strength
+  - `draws` — draw outs or `"none"`
+  - `pot_odds` — bot's pot-odds assessment
+  - `spr` — stack-to-pot ratio at decision time
+  - `reasoning_summary` — short natural-language reasoning
+  - `risk_flag` — any risk note the bot flagged
 - Raw provider request (URL, headers sans auth, body)
 - Raw provider response (status code, body)
 - Error text (if failed)
+
+For provider errors or unparseable responses, `decision` is `null`.
+
+Example accepted decision:
+```json
+{
+  "decision": {
+    "action": "check",
+    "amount": null,
+    "confidence": 0.82,
+    "hand_strength": "ace high with overcards",
+    "draws": "none",
+    "pot_odds": "check available",
+    "spr": "3.33",
+    "reasoning_summary": "Take the free option and realize equity.",
+    "risk_flag": "low"
+  }
+}
+```
+
+Example failed parse:
+```json
+{
+  "outcome": "invalid_json",
+  "decision": null
+}
+```
 
 > **Secrets are safe:** API keys and auth headers are **never** written to debug logs.
 
