@@ -13,7 +13,7 @@ build/
 htmlcov/
 
 # OpenCode editor runtime
-.opencode/node_modules/
+.opencode
 
 # Audit outputs
 audits/
@@ -52,3 +52,6 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+opencode.jsonc
+CLAUDE.md
+.opencode/.openwork-enterprise-creators

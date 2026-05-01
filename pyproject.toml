@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pokercli"
+version = "0.1.0"
+description = "CLI poker simulator with LLM-controlled seats and backtesting analytics"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "httpx>=0.28.1",
+  "platformdirs>=4.3.6",
+  "python-dotenv>=1.1.0",
+  "questionary>=2.1.0",
+  "rich>=14.0.0",
+  "typer>=0.16.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.5",
+]
+
+[project.scripts]
+poker = "pokercli.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["pokercli*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
