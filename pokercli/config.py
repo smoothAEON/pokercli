@@ -7,6 +7,8 @@ from pathlib import Path
 from platformdirs import user_config_dir, user_data_dir
 
 APP_NAME = "pokercli"
+APP_DISPLAY_NAME = "PokerCLI"
+APP_REPOSITORY_URL = "https://github.com/smoothaeon/pokercli"
 
 
 @dataclass(slots=True)

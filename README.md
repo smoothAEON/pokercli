@@ -2,7 +2,9 @@
 
 <div align="center">
 
-**CLI Texas Hold'em poker simulator with LLM-controlled opponent seats and batch backtesting.**
+**Texas Hold'em in your terminal, except the rest of the table is powered by LLM chaos.**
+
+**Play live against bots, run goofy 10,000-hand sims, and inspect exactly how the robot gremlins behaved.**
 
 [![Python](https://img.shields.io/badge/Python-3.13%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -13,60 +15,85 @@
 
 </div>
 
+```text
+┌──────────────────────────────────────────────────────────┐
+│  ♠ shuffle up  ♥ post blinds  ♦ ask robots  ♣ win chips │
+│                                                          │
+│  you = Seat 1                                            │
+│  bots = everyone else                                    │
+│  peeking at other hole cards = illegal goblin behavior   │
+└──────────────────────────────────────────────────────────┘
+```
+
+> Vibe check:
+> - Human vs LLM poker, straight from the command line.
+> - Live play when you want drama, batch sims when you want data.
+> - Every bot only sees its own hole cards plus public info.
+> - This repo is here for fun, but the rules engine still has a referee whistle.
+
 ---
 
 ## Table of Contents
 
-- [What is PokerCLI?](#what-is-pokercli)
-- [Quick Start (30 seconds)](#quick-start-30-seconds)
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-  - [Windows](#windows)
-  - [macOS](#macos)
-  - [Linux](#linux)
-  - [Verify Installation](#verify-installation)
-- [Setup & Configuration](#setup--configuration)
-  - [The `.env` File](#the-env-file)
-  - [`.env` Reference (Every Key Explained)](#env-reference-every-key-explained)
-  - [Bot Identities](#bot-identities)
-  - [Supported LLM Providers](#supported-llm-providers)
-  - [Getting API Keys](#getting-api-keys)
-- [Commands](#commands)
-  - [`play` — Live Play](#play--live-play)
-  - [`setup` — Pre-Bootstrap Seats](#setup--pre-bootstrap-seats)
-  - [`simulate` — Batch Backtesting](#simulate--batch-backtesting)
-  - [`replay` — Replay Stored Hands](#replay--replay-stored-hands)
-- [Analytics & Metrics](#analytics--metrics)
-- [LLM Debug Logs](#llm-debug-logs)
-- [Architecture](#architecture)
-- [Troubleshooting](#troubleshooting)
-- [Development](#development)
-- [License](#license)
+- [What is PokerCLI? 🃏](#what-is-pokercli)
+- [Quick Start (30 seconds) ⚡](#quick-start-30-seconds)
+- [Features ✨](#features)
+- [Requirements 🐍](#requirements)
+- [Installation 🛠️](#installation)
+  - [Windows 🪟](#windows)
+  - [macOS 🍎](#macos)
+  - [Linux 🐧](#linux)
+  - [Verify Installation ✅](#verify-installation)
+- [Setup & Configuration 🎛️](#setup--configuration)
+  - [The `.env` File 📄](#the-env-file)
+  - [`.env` Reference (Every Key Explained) 🔍](#env-reference-every-key-explained)
+  - [Bot Identities 🎭](#bot-identities)
+  - [Supported LLM Providers 🤖](#supported-llm-providers)
+  - [Getting API Keys 🔑](#getting-api-keys)
+- [Commands 🎮](#commands)
+  - [`play` — Live Play 🎲](#play--live-play)
+  - [`setup` — Pre-Bootstrap Seats 🪄](#setup--pre-bootstrap-seats)
+  - [`simulate` — Batch Backtesting 🧪](#simulate--batch-backtesting)
+  - [`replay` — Replay Stored Hands 📼](#replay--replay-stored-hands)
+- [Analytics & Metrics 📊](#analytics--metrics)
+- [LLM Debug Logs 🕵️](#llm-debug-logs)
+- [Architecture 🏗️](#architecture)
+- [Troubleshooting 🧯](#troubleshooting)
+- [Development 👩‍💻](#development)
+- [License 📜](#license)
 
 ---
 
 ## What is PokerCLI?
 
-PokerCLI is a **terminal-based Texas Hold'em poker game** where you (the human) sit at **Seat 1** and every other seat is controlled by an **LLM** — OpenAI, Anthropic, OpenRouter, NVIDIA NIM, or any OpenAI-compatible endpoint.
+PokerCLI is a **terminal Texas Hold'em table** where **you** sit in **Seat 1** and the rest of the chairs are filled by **LLMs** — OpenAI, Anthropic, OpenRouter, NVIDIA NIM, or any OpenAI-compatible endpoint.
 
-It's also a **backtesting engine**: run thousands of hands with mixed LLM + rule-bot lineups, get full analytics (VPIP, PFR, 3-bet rate, PnL, max drawdown, risk of ruin(via kelly Criterion)), and export results to CSV or JSON.
+It also doubles as a **backtesting toy chest**: run thousands of hands with mixed LLM + rule-bot lineups, then inspect VPIP, PFR, 3-bet rate, PnL, drawdown, risk of ruin (via Kelly Criterion), and more.
 
-```
+```text
  ____       _             ____ _     ___
 |  _ \ ___ | | _____ _ __/ ___| |   |_ _|
 | |_) / _ \| |/ / _ \ '__| |   | |    | |
 |  __/ (_) |   <  __/ |  | |___| |___ | |
 |_|   \___/|_|\_\___|_|   \____|_____|___|
+
+ .------.  .------.  .------.
+ |A .   |  |K ^   |  |Q / \  |
+ | /.\  |  | / \  |  | / _ \ |
+ |(_._) |  | \ /  |  | \(_) /|
+ |  |  A|  |  ^  K|  |  \ / Q|
+ `------'  `------'  `------'
 ```
 
-### You play. The LLMs play. Every seat sees only what it should.
+### You play. The bots bluff. Nobody gets to peek. 👀🚫
 
-PokerCLI enforces **strict information segmentation** — each LLM seat only receives its own hole cards plus the public board. No peeking at opponents' hands. This is verified by the `test_redaction.py` test suite.
+PokerCLI enforces **strict information segmentation** — every LLM seat only receives its own hole cards plus the public board. No peeking at opponents' hands, no spooky omniscience, no funny business. This is verified by the `test_redaction.py` test suite.
 
 ---
 
 ## Quick Start (30 seconds)
+
+Minimal ceremony. Immediate cards. ⚡
 
 ```bash
 # 1. Clone and install
@@ -78,36 +105,40 @@ pip install -e ".[dev]"
 python -m pokercli play
 ```
 
-If you already have `.env` configured: just run `python -m pokercli play` and start playing.
+If you already have `.env` configured, just run `python -m pokercli play` and start splashing around.
 
-On Windows, double-click `play_poker.bat`.
+On Windows, you can also double-click `play_poker.bat` like a civilized button enjoyer.
 
 ---
 
 ## Features
 
+Cute little repo, surprisingly serious card logic. ✨
+
 | Feature | Description |
 |---|---|
-| **Live human vs LLM** | You at Seat 1, LLMs at every other seat. Real-time status table shows each bot's state. |
-| **5 LLM providers** | OpenAI, Anthropic, OpenRouter, NVIDIA NIM, and any OpenAI-compatible endpoint. |
-| **Provider adapter pattern** | All LLMs unified behind a single interface. Swap providers per seat. |
-| **Strict information segmentation** | Each LLM only sees its own hole cards + public board state. Verified by tests. |
-| **Interactive `.env` onboarding** | No manual config needed — `play` and `setup` prompt you for every seat. |
-| **Batch simulation** | Run thousands of hands with mixed LLM + rule-bot lineups. Reproducible with seeded RNG. |
+| **Live human vs LLM** | You sit in Seat 1 while the rest of the table is staffed by bots. A live status table shows who is thinking, retrying, or punting. |
+| **5 LLM providers** | OpenAI, Anthropic, OpenRouter, NVIDIA NIM, plus any OpenAI-compatible endpoint you feel like wiring in. |
+| **Provider adapter pattern** | All LLMs hide behind one interface, so swapping models per seat is easy. |
+| **Strict information segmentation** | Each LLM only sees its own hole cards and the public board. The anti-cheating bouncer is covered by tests. |
+| **Interactive `.env` onboarding** | No hand-editing config unless you want to. `play` and `setup` walk seat-by-seat through the whole thing. |
+| **Batch simulation** | Run thousands of hands with mixed LLM + rule-bot lineups. Seed the RNG and replay the nonsense later. |
 | **Full analytics** | VPIP, PFR, 3-bet rate, PnL, BB/100, showdown win rate, max drawdown, volatility, risk of ruin. |
-| **SQLite session storage** | Every hand, action, and LLM call is stored. Replay any session later. |
-| **LLM debug logging** | Optional per-session JSON logs with full request/response payloads (secrets redacted). |
-| **Live LLM failure recovery** | If a bot's API call fails, you can retry, reconfigure the seat, or end the session. |
-| **RuleBot fallback** | Every LLM seat has a built-in rule-based bot fallback. Configurable failure handling. |
-| **Side pot support** | Multi-way all-ins with short stacks are handled correctly. |
-| **Session memory** | LLM seats maintain context across hands (default 5-hand window). |
-| **Rich TUI** | Beautiful terminal UI built with [Rich](https://github.com/Textualize/rich). |
-| **Cross-platform** | Windows, macOS, Linux. Data stored via `platformdirs`. |
-| **CSV/JSON export** | Export simulation results for further analysis. |
+| **SQLite session storage** | Every hand, action, and LLM call gets stored, so you can replay past disasters at will. |
+| **LLM debug logging** | Optional per-session JSON logs with full request/response payloads, with secrets redacted. |
+| **Live LLM failure recovery** | If a bot API call fails, you can retry, reconfigure the seat, or shut the table down gracefully. |
+| **RuleBot fallback** | Every LLM seat has a built-in rule bot fallback for when the API gremlins show up. |
+| **Side pot support** | Multi-way all-ins with short stacks are handled correctly, because chaos still needs accounting. |
+| **Session memory** | LLM seats keep context across hands by default, so they remember a little history and hold grudges. |
+| **Rich TUI** | The table lives in a [Rich](https://github.com/Textualize/rich)-powered terminal UI instead of plain sad text. |
+| **Cross-platform** | Windows, macOS, and Linux all get invited to the game night. |
+| **CSV/JSON export** | Export simulation results when you want spreadsheets with your silliness. |
 
 ---
 
 ## Requirements
+
+Tiny repo, mildly picky about Python versions. 🐍
 
 ### Hard Requirements
 
@@ -115,6 +146,8 @@ On Windows, double-click `play_poker.bat`.
 - **pip** (included with Python)
 
 ### For LLM Seats (Live Play / LLM Simulation)
+
+Bring at least one API key if you want the table talking back. 🤖
 
 You need at least one LLM API key from any of:
 
@@ -130,13 +163,17 @@ You need at least one LLM API key from any of:
 
 ### For RuleBot-Only Simulation
 
-No API keys needed at all. Simulate with rule-based bots only — no LLM costs.
+No API keys needed at all. Just pure rule-bot shenanigans with zero LLM costs. 🆓
 
 ---
 
 ## Installation
 
+Pick your operating system and invite it to the table. 🛠️
+
 ### Windows
+
+For the double-clickers, the `py` launchers, and the PowerShell faithful. 🪟
 
 **Option A: Use the launcher (easiest)**
 1. Double-click `play_poker.bat`
@@ -161,6 +198,8 @@ If Python is not found:
 
 ### macOS
 
+Apple-flavored card nonsense. 🍎
+
 ```bash
 # Install Python 3.13+ (if needed)
 brew install python@3.13
@@ -175,6 +214,8 @@ python -m pokercli play
 ```
 
 ### Linux
+
+Penguin-approved chip redistribution. 🐧
 
 ```bash
 # Install Python 3.13+ (Ubuntu/Debian example)
@@ -192,6 +233,8 @@ python3.13 -m pokercli play
 ```
 
 ### Verify Installation
+
+If this works, the tiny robot casino is officially open. ✅
 
 ```bash
 python -m pokercli --help
@@ -214,9 +257,13 @@ Commands:
 
 ## Setup & Configuration
 
+This is the little spellbook that tells the table who is sitting down. 🎛️
+
 PokerCLI stores all live-play configuration in a `.env` file at the root of the repository. You never need to edit this file manually — the `play` and `setup` commands walk you through every setting interactively.
 
 ### The `.env` File
+
+Tiny file, large consequences. 📄
 
 **Location:** `<repo>/.env` (default)  
 **Override:** Set `POKER_ENV_PATH=/path/to/custom.env` before running.
@@ -224,6 +271,8 @@ PokerCLI stores all live-play configuration in a `.env` file at the root of the 
 The `.env` file is **gitignored** — your API keys are never committed. A template (`.env.example`) is provided for reference.
 
 ### `.env` Reference (Every Key Explained)
+
+Everything you can tweak, minus the smoke machine. 🔍
 
 #### Global Table Settings
 
@@ -236,7 +285,7 @@ The `.env` file is **gitignored** — your API keys are never committed. A templ
 
 #### Per-Seat LLM Settings
 
-For each opponent seat (seat number `N`), seven keys configure the LLM:
+For each opponent seat (seat number `N`), these keys configure the LLM:
 
 | Key | Description | Example | Required? |
 |---|---|---|---|
@@ -281,6 +330,8 @@ POKER_SEAT_3_BASE_URL=https://integrate.api.nvidia.com/v1
 
 ### Bot Identities
 
+Because giving the bots little poker personalities is half the fun. 🎭
+
 Each LLM seat can be assigned a poker persona via the `POKER_SEAT_N_IDENTITY` key in `.env`. The identity's description is injected into the LLM's system prompt, shaping how the bot plays.
 
 Six identities are included out of the box:
@@ -298,6 +349,8 @@ If no identity is set, the LLM uses a generic poker prompt without any specific 
 
 ### Supported LLM Providers
 
+Pick your favorite robot brain and let it sit down. 🤖
+
 | Provider | `.env` Value | Default Model | Default Endpoint | Notes |
 |---|---|---|---|---|
 | **OpenAI** | `openai` | `gpt-5.4-mini` | `https://api.openai.com/v1` | Standard `/chat/completions` |
@@ -307,6 +360,8 @@ If no identity is set, the LLM uses a generic poker prompt without any specific 
 | **OpenAI-Compatible** | `openai-compatible` | `gpt-5.4-mini` | *Must set `BASE_URL`* | Any `/chat/completions` endpoint |
 
 ### Getting API Keys
+
+Time to hand the robots their credentials. 🔑
 
 <details>
 <summary><b>OpenAI</b></summary>
@@ -368,11 +423,20 @@ You must set `POKER_SEAT_N_BASE_URL` to the endpoint URL.
 
 ## Commands
 
+Choose your flavor of chaos. 🎮
+
+```text
+[ play ]   [ setup ]   [ simulate ]   [ replay ]
+   🎲         🪄            🧪           📼
+```
+
 ### `play` — Live Play
 
 ```bash
 python -m pokercli play
 ```
+
+Main event energy: you, some cards, and a table full of model endpoints with opinions. 🎲
 
 This launches the main game. Here's what happens step by step:
 
@@ -455,6 +519,8 @@ python -m pokercli play --seats 4 --stack-bb 200 --max-hands 10 --debug-llm-log
 python -m pokercli setup
 ```
 
+Good if you want the seats sorted before the cards start flying. 🪄
+
 Walks you through configuring all seats and table settings up front, without starting a game. Saves everything to `.env`. Use this if you want to configure all seats before playing.
 
 ```bash
@@ -467,6 +533,8 @@ python -m pokercli setup --seats 4 --stack-bb 150 --max-hands 30
 ```bash
 python -m pokercli simulate --hands 1000 --seed 42
 ```
+
+For science, spreadsheets, and industrial-scale bot nonsense. 🧪
 
 Runs a batch simulation without human interaction. All seats are controlled by controllers (LLM or rule-based).
 
@@ -523,6 +591,8 @@ python -m pokercli simulate --debug-llm-log --lineup lineup.json
 
 ### `replay` — Replay Stored Hands
 
+Instant reruns, no fresh API bill, all the old drama. 📼
+
 Every hand played in a live session is stored in the SQLite database. Replay them:
 
 ```bash
@@ -538,6 +608,8 @@ Replay is a **re-render** of stored hand history (not a re-execution), so it's i
 ---
 
 ## Analytics & Metrics
+
+If you want receipts for who played well and who absolutely punted, this is the scoreboard. 📊
 
 PokerCLI computes per-seat analytics after every session. Here's what each metric means:
 
@@ -598,6 +670,8 @@ seat,player_name,hands,pnl,bb_per_100,vpip,pfr,three_bet_rate,showdown_win_rate,
 
 ## LLM Debug Logs
 
+For when you want to inspect the bot brain goo in loving detail. 🕵️
+
 When enabled (via `--debug-llm-log` or `POKER_DEBUG_LLM=1`), PokerCLI writes per-session JSON logs to `llm_debug/<session_id>.json`.
 
 Each log file contains:
@@ -635,6 +709,8 @@ The `llm_debug/` directory is **gitignored**.
 ---
 
 ## Architecture
+
+High-level map of the tiny casino machinery. 🏗️
 
 ```
 cli.py (Typer commands)
@@ -691,6 +767,8 @@ debug_logs.py (per-session JSON LLM debug logger)
 ---
 
 ## Troubleshooting
+
+When the table catches fire, start here. 🧯
 
 ### "Python was not found on PATH" (Windows)
 
@@ -761,7 +839,11 @@ python -m pokercli --help  # verify
 
 ## Development
 
+For tinkerers, bot whisperers, and anyone who wants to add even more nonsense. 👩‍💻
+
 ### Setup
+
+One command and you're in:
 
 ```bash
 pip install -e ".[dev]"
@@ -833,13 +915,25 @@ pokercli/
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE) for details, and go build strange little poker robots. 📜
 
 ---
 
 <div align="center">
 
-**Made with ♠️ ♥️ ♦️ ♣️ and LLMs**
+```text
+   .-=========-.
+   \'-=======-'/
+   _|   .=.   |_
+  ((|  {{1}}  |))
+   \|   /|\   |/
+    \__ '`' __/
+      _`) (`_
+    _/_______\_
+   /___________\
+```
+
+**Made with ♠️ ♥️ ♦️ ♣️ and entirely reasonable all-ins**
 
 *"Fold pre." — Every poker bot ever*
 

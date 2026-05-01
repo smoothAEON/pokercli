@@ -186,6 +186,7 @@ def test_openai_provider_error_exposes_debug_payloads_without_auth_header(monkey
     assert error.provider_request is not None
     assert error.provider_response is not None
     assert error.provider_request.to_dict()["url"] == "https://api.openai.com/v1/chat/completions"
+    assert error.provider_request.to_dict()["headers"]["User-Agent"] == "PokerCLI/0.1.0"
     assert error.provider_response.to_dict() == {"status_code": 401, "body": {"error": "bad key"}}
     assert "Authorization" not in json.dumps(error.provider_request.to_dict())
     assert "secret-key" not in json.dumps(error.provider_request.to_dict())
@@ -201,6 +202,54 @@ def test_provider_factory_supports_openrouter() -> None:
     )
     provider = provider_from_profile(profile, "secret")
     assert isinstance(provider, OpenRouterProvider)
+
+
+def test_openrouter_provider_sets_app_attribution_headers(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            request = httpx.Request("POST", url)
+            return httpx.Response(
+                status_code=200,
+                request=request,
+                json={"choices": [{"message": {"content": '{"action":"check","amount":null,"reason":"ok"}'}}]},
+            )
+
+    monkeypatch.setattr("pokercli.llm.providers.httpx.Client", FakeClient)
+    profile = ProviderProfile(
+        name="router",
+        provider="openrouter",
+        model="openai/gpt-4o",
+        api_key_env="OPENROUTER_API_KEY",
+        base_url="https://openrouter.ai/api/v1",
+    )
+    provider = OpenRouterProvider(profile, "secret-key")
+    response = provider.complete_turn(LLMTurnRequest(system_prompt="system", user_prompt="user"))
+
+    assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
+    assert captured["headers"]["HTTP-Referer"] == "https://github.com/smoothaeon/pokercli"
+    assert captured["headers"]["X-OpenRouter-Title"] == "PokerCLI"
+    assert captured["headers"]["User-Agent"] == "PokerCLI/0.1.0"
+    assert response.provider_request is not None
+    assert response.provider_request.to_dict()["headers"] == {
+        "Content-Type": "application/json",
+        "User-Agent": "PokerCLI/0.1.0",
+        "HTTP-Referer": "https://github.com/smoothaeon/pokercli",
+        "X-OpenRouter-Title": "PokerCLI",
+    }
+    assert "Authorization" not in response.provider_request.to_dict()["headers"]
 
 
 def test_provider_factory_supports_nvidia() -> None:

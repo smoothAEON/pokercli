@@ -8,6 +8,12 @@ from typing import Any
 
 import httpx
 
+from pokercli import __version__
+from pokercli.config import APP_DISPLAY_NAME, APP_REPOSITORY_URL
+
+
+APP_USER_AGENT = f"{APP_DISPLAY_NAME}/{__version__}"
+
 
 class LLMProviderError(RuntimeError):
     """Raised when an LLM provider request fails."""
@@ -30,9 +36,10 @@ class LLMProviderError(RuntimeError):
 class ProviderRequestDebug:
     url: str
     body: dict[str, Any]
+    headers: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"url": self.url, "body": self.body}
+        return {"url": self.url, "headers": self.headers, "body": self.body}
 
 
 @dataclass(slots=True)
@@ -165,7 +172,10 @@ class OpenAICompatibleProvider(_ChatCompletionsProvider):
 class OpenRouterProvider(_ChatCompletionsProvider):
     provider_name = "openrouter"
     default_base_url = "https://openrouter.ai/api/v1"
-    extra_headers = {"X-OpenRouter-Title": "pokercli"}
+    extra_headers = {
+        "HTTP-Referer": APP_REPOSITORY_URL,
+        "X-OpenRouter-Title": APP_DISPLAY_NAME,
+    }
 
 
 class NVIDIAProvider(_ChatCompletionsProvider):
@@ -211,9 +221,10 @@ def _post_json(
     started = time.perf_counter()
     request_headers = {
         "Content-Type": "application/json",
+        "User-Agent": APP_USER_AGENT,
         **headers,
     }
-    request_debug = ProviderRequestDebug(url=url, body=payload)
+    request_debug = ProviderRequestDebug(url=url, headers=_redact_request_headers(request_headers), body=payload)
     response: httpx.Response | None = None
     try:
         with httpx.Client(timeout=timeout) as client:
@@ -274,6 +285,14 @@ def _provider_response_debug(response: httpx.Response | None, *, fallback_body: 
     except ValueError:
         body = response.text or fallback_body
     return ProviderResponseDebug(status_code=response.status_code, body=body)
+
+
+def _redact_request_headers(headers: dict[str, str]) -> dict[str, str]:
+    return {
+        key: value
+        for key, value in headers.items()
+        if key.lower() not in {"authorization", "x-api-key"}
+    }
 
 
 def provider_from_profile(profile: ProviderProfile, api_key: str) -> ProviderAdapter:
