@@ -95,7 +95,6 @@ def test_render_table_uses_suit_symbols() -> None:
         hand_no=1,
         hole_cards=cards(["As", "Kd"]),
         stack=1_000,
-        bankroll=0,
         to_call=0,
         legal_actions=[LegalAction(ActionType.CHECK), LegalAction(ActionType.BET, min_total=100, max_total=1_000)],
         table=PublicTableState(
@@ -111,6 +110,7 @@ def test_render_table_uses_suit_symbols() -> None:
     )
 
     rendered = render_table(view)
+    assert "Bankroll" not in rendered
     assert "Board:" in rendered
     assert "+----+ +----+ +----+" in rendered
     assert "♠" in rendered

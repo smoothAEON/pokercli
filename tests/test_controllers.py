@@ -20,7 +20,6 @@ def make_view(
         hand_no=3,
         hole_cards=(Card.from_code("As"), Card.from_code("Kd")),
         stack=1_000,
-        bankroll=0,
         to_call=to_call,
         legal_actions=legal_actions,
         table=PublicTableState(

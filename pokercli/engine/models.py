@@ -291,7 +291,6 @@ class SeatView:
     hand_no: int
     hole_cards: tuple[Card, Card]
     stack: int
-    bankroll: int
     to_call: int
     legal_actions: list[LegalAction]
     table: PublicTableState
@@ -303,7 +302,6 @@ class SeatView:
             "player_name": self.player_name,
             "hole_cards": [str(card) for card in self.hole_cards],
             "stack": self.stack,
-            "bankroll": self.bankroll,
             "to_call": self.to_call,
             "legal_actions": [action.to_dict() for action in self.legal_actions],
             "table": self.table.to_dict(),
@@ -348,7 +346,6 @@ class PlayerState:
     seat: int
     name: str
     controller: str
-    bankroll: int
     stack: int
     hole_cards: tuple[Card, Card] | None = None
     folded: bool = False

@@ -84,7 +84,7 @@ def render_table(view: SeatView) -> str:
     lines.append(f"Street: {view.table.street.value}    Pot: {view.table.pot}    To call: {view.to_call}")
     lines.append("Board:")
     lines.append(render_cards(view.table.board))
-    lines.append(f"Your stack: {view.stack}    Bankroll: {view.bankroll}")
+    lines.append(f"Your stack: {view.stack}")
     lines.append("Hole cards:")
     lines.append(render_cards(view.hole_cards))
     lines.append("Stacks:")

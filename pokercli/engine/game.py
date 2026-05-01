@@ -61,7 +61,6 @@ class PokerGame:
                 seat=seat,
                 name=seat_names[seat],
                 controller=controllers[seat],
-                bankroll=0,
                 stack=config.starting_stack,
             )
             for seat in range(config.seat_count)
@@ -171,8 +170,6 @@ class PokerGame:
             for seat in self._ordered_live_seats_from(first_actor)
             if self._can_take_action(seat)
         ]
-        if state.pending_to_act and state.pending_to_act[0] == big_blind_seat and len(self.live_seats()) == 2:
-            state.pending_to_act = [small_blind_seat, big_blind_seat]
         self._auto_advance_if_no_decisions()
         return state
 
@@ -236,7 +233,6 @@ class PokerGame:
             hand_no=state.hand_no,
             hole_cards=player.hole_cards,
             stack=player.stack,
-            bankroll=player.bankroll,
             to_call=max(0, state.current_bet - player.street_commitment),
             legal_actions=self.legal_actions_for(seat),
             table=self.build_public_state(),
@@ -275,12 +271,12 @@ class PokerGame:
                 elif max_total > state.current_bet:
                     actions.append(LegalAction(ActionType.ALL_IN, min_total=max_total, max_total=max_total))
         else:
-            if player.stack > to_call and raise_reopened:
-                min_total = state.current_bet + state.last_full_raise_size
-                if max_total >= min_total:
-                    actions.append(LegalAction(ActionType.RAISE, min_total=min_total, max_total=max_total))
-                elif max_total > state.current_bet:
-                    actions.append(LegalAction(ActionType.ALL_IN, min_total=max_total, max_total=max_total))
+            if player.stack > to_call:
+                if raise_reopened:
+                    min_total = state.current_bet + state.last_full_raise_size
+                    if max_total >= min_total:
+                        actions.append(LegalAction(ActionType.RAISE, min_total=min_total, max_total=max_total))
+                actions.append(LegalAction(ActionType.ALL_IN, min_total=max_total, max_total=max_total))
         return actions
 
     def _order_from_after(self, seat: int) -> list[int]:
@@ -417,8 +413,6 @@ class PokerGame:
             self._advance_street()
             if not state.pending_to_act and state.street in {Street.FLOP, Street.TURN, Street.RIVER}:
                 if len(self._players_able_to_act()) == 0:
-                    continue
-                if all(self.require_state().seats[seat].all_in for seat in self._active_seats(include_all_in=False)):
                     continue
             if state.pending_to_act:
                 return
@@ -560,7 +554,7 @@ class PokerGame:
 
     def _complete_hand(self) -> None:
         state = self.require_state()
-        while len(state.board) < 5 and len([seat for seat in self._active_seats() if not state.seats[seat].folded]) > 1:
+        while len(state.board) < 5 and len(self._active_seats()) > 1:
             if state.street == Street.PRE_FLOP:
                 self._advance_street()
             elif state.street == Street.FLOP:
@@ -569,7 +563,7 @@ class PokerGame:
                 self._advance_street()
             elif state.street == Street.RIVER:
                 break
-        resolved_street = Street.SHOWDOWN if len([seat for seat in self._active_seats() if not state.seats[seat].folded]) > 1 else state.street
+        resolved_street = Street.SHOWDOWN if len(self._active_seats()) > 1 else state.street
         settlement = self._settle()
         state.street = Street.SETTLEMENT
         state.hand_complete = True
@@ -648,4 +642,4 @@ class PokerGame:
         return self.hand_histories[-1]
 
     def chip_totals(self) -> dict[int, int]:
-        return {seat: player.bankroll + player.stack for seat, player in self.seats.items()}
+        return {seat: player.stack for seat, player in self.seats.items()}

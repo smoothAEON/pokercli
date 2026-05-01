@@ -19,7 +19,6 @@ def make_view() -> SeatView:
         hand_no=3,
         hole_cards=(Card.from_code("As"), Card.from_code("Kd")),
         stack=1_000,
-        bankroll=0,
         to_call=0,
         legal_actions=[LegalAction(ActionType.CHECK), LegalAction(ActionType.BET, min_total=100, max_total=1_000)],
         table=PublicTableState(
@@ -126,6 +125,11 @@ def test_llm_controller_disables_after_repeated_failures() -> None:
     assert third.normalized_action() in {ActionType.CHECK, ActionType.BET}
     assert controller.disabled is True
     assert provider.calls == 2
+
+
+def test_seat_view_prompt_payload_omits_bankroll() -> None:
+    payload = make_view().to_prompt_payload()
+    assert "bankroll" not in payload
 
 
 def test_llm_controller_raises_in_live_mode() -> None:

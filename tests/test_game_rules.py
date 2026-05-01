@@ -105,7 +105,48 @@ def test_short_all_in_does_not_reopen_betting() -> None:
     game.apply_action(1, ActionDecision(ActionType.CALL))
     game.apply_action(2, ActionDecision(ActionType.ALL_IN))
     legal_actions = {action.action for action in game.legal_actions_for(0)}
-    assert legal_actions == {ActionType.FOLD, ActionType.CALL}
+    assert legal_actions == {ActionType.FOLD, ActionType.CALL, ActionType.ALL_IN}
+
+
+def test_player_can_shove_over_short_all_in_without_reopening_others() -> None:
+    game = PokerGame(GameConfig(seat_count=3, small_blind=50, big_blind=100, starting_stack=500))
+    game.seats[2].stack = 350
+    game.start_hand()
+    game.apply_action(0, ActionDecision(ActionType.RAISE, amount=300))
+    game.apply_action(1, ActionDecision(ActionType.CALL))
+    game.apply_action(2, ActionDecision(ActionType.ALL_IN))
+
+    game.apply_action(0, ActionDecision(ActionType.ALL_IN))
+
+    state = game.require_state()
+    assert state.pending_to_act == [1]
+    assert state.current_bet == 500
+    seat_one_actions = game.legal_actions_for(1)
+    assert {action.action for action in seat_one_actions} == {ActionType.FOLD, ActionType.CALL}
+    assert next(action for action in seat_one_actions if action.action == ActionType.CALL).call_amount == 200
+
+
+def test_multiway_all_in_runs_out_board_when_no_decisions_remain() -> None:
+    game = PokerGame(GameConfig(seat_count=3, small_blind=50, big_blind=100, starting_stack=1_000))
+    game.seats[0].stack = 500
+    game.seats[1].stack = 700
+    game.seats[2].stack = 700
+    state = game.start_hand()
+    state.seats[0].hole_cards = cards(["As", "Ad"])
+    state.seats[1].hole_cards = cards(["Ks", "Kd"])
+    state.seats[2].hole_cards = cards(["Qs", "Qd"])
+    state.deck[:] = list(cards(["5c", "2c", "7d", "9h", "6d", "Jc", "8s", "3s"]))
+
+    game.apply_action(0, ActionDecision(ActionType.ALL_IN))
+    game.apply_action(1, ActionDecision(ActionType.ALL_IN))
+    game.apply_action(2, ActionDecision(ActionType.CALL))
+
+    state = game.require_state()
+    history = game.hand_histories[-1]
+    assert state.hand_complete is True
+    assert history.board == cards(["2c", "7d", "9h", "Jc", "3s"])
+    assert history.street_reached == Street.SHOWDOWN
+    assert len(history.awards) > 0
 
 
 def test_side_pot_settlement_awards_correct_winners() -> None:
@@ -219,6 +260,14 @@ def test_live_seats_excludes_busted_players() -> None:
     assert game.live_seats() == [0, 2]
     game.seats[0].stack = 0
     assert game.live_seats() == [2]
+
+
+def test_chip_totals_returns_stacks_only() -> None:
+    game = PokerGame(GameConfig(seat_count=3, starting_stack=500))
+    game.seats[0].stack = 725
+    game.seats[1].stack = 0
+    game.seats[2].stack = 275
+    assert game.chip_totals() == {0: 725, 1: 0, 2: 275}
 
 
 def test_start_hand_resets_all_players_not_just_live_ones() -> None:
