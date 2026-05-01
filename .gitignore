@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+*.sqlite3
+
+# Tests & tools
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OpenCode editor runtime
+.opencode/node_modules/
+
+# Audit outputs
+audits/
+
+# Generated session reports
+reports/
+
+# LLM debug logs (raw request/response payloads)
+llm_debug/
+
+# Secrets & local config
+secrets.json
+config.json
+*.env
+!.env.example
+
+# Local Claude Code settings
+.claude/
+
+# Virtual environments
+.venv/
+venv/
+
+# Logs
+*.log
+
+# Databases (any SQLite or other DB file)
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
