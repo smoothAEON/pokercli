@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from pokercli.engine.cards import Card, standard_deck
 from pokercli.engine.evaluator import evaluate_cards
+from pokercli.engine.hand_strength import compute_hand_strength
 from pokercli.engine.models import (
     ActionDecision,
     ActionRecord,
@@ -237,6 +238,7 @@ class PokerGame:
             legal_actions=self.legal_actions_for(seat),
             table=self.build_public_state(),
             session_memory=list(self.session_memory[seat]),
+            hand_strength=compute_hand_strength(player.hole_cards, tuple(state.board)),
         )
 
     def legal_actions_for(self, seat: int) -> list[LegalAction]:

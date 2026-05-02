@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import random
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import questionary
 import typer
@@ -16,7 +17,7 @@ from pokercli.analytics import analytics_summary, compute_seat_analytics, write_
 from pokercli.config import AppConfig, default_database_path, default_llm_debug_dir, load_config
 from pokercli.debug_logs import SessionLLMDebugLogger
 from pokercli.engine import ActionDecision, GameConfig, PokerGame
-from pokercli.identities import list_identities, lookup_identity
+from pokercli.identities import identity_keys, lookup_identity
 from pokercli.live_env import (
     DEFAULT_HUMAN_SEAT,
     DEFAULT_MAX_HANDS,
@@ -25,13 +26,12 @@ from pokercli.live_env import (
     DEFAULT_TEMPERATURE,
     DEFAULT_TIMEOUT_S,
     LiveSeatConfig,
-    SUPPORTED_IDENTITY_KEYS,
     default_base_url_for_provider,
     default_model_for_provider,
     env_path,
     inspect_seat,
     load_env_values,
-    seat_base_url_remove_keys,
+    seat_remove_keys,
     seat_key,
     seat_updates,
     table_defaults,
@@ -78,6 +78,70 @@ def _debug_llm_logging_enabled(explicit: bool | None) -> bool:
     if explicit is not None:
         return explicit
     return os.getenv("POKER_DEBUG_LLM") == "1"
+
+
+def _assign_session_identities(seats: list[int], *, seed: int | None = None) -> dict[int, str]:
+    keys = list(identity_keys())
+    if not keys:
+        return {}
+    chooser: random.Random = random.Random(seed) if seed is not None else random.SystemRandom()
+    assignments: dict[int, str] = {}
+    remaining = list(keys)
+    for seat in seats:
+        if not remaining:
+            remaining = list(keys)
+        identity = chooser.choice(remaining)
+        remaining.remove(identity)
+        assignments[seat] = identity
+    return assignments
+
+
+def _identity_payload(identity_key: str) -> dict[str, str]:
+    identity = lookup_identity(identity_key)
+    if identity is None:
+        return {"key": identity_key, "name": identity_key, "style": "unknown"}
+    return {"key": identity.key, "name": identity.name, "style": identity.style}
+
+
+def _session_llm_metadata(
+    names: list[str],
+    controllers: dict[int, object],
+    seat_identities: Mapping[int, str],
+) -> dict[str, dict[str, Any]]:
+    payload: dict[str, dict[str, Any]] = {}
+    for seat, controller in controllers.items():
+        if not isinstance(controller, LLMController):
+            continue
+        identity_key = seat_identities.get(seat)
+        if identity_key is None:
+            continue
+        payload[str(seat + 1)] = {
+            "name": names[seat],
+            "provider": controller.provider.profile.provider,
+            "model": controller.provider.profile.model,
+            "identity": _identity_payload(identity_key),
+        }
+    return payload
+
+
+def _print_llm_personalities(session_llm_metadata: Mapping[str, Mapping[str, Any]]) -> None:
+    if not session_llm_metadata:
+        return
+    table = Table(title="LLM Personalities")
+    table.add_column("Seat")
+    table.add_column("Name")
+    table.add_column("Model")
+    table.add_column("Personality")
+    for seat_key in sorted(session_llm_metadata, key=int):
+        seat_data = session_llm_metadata[seat_key]
+        identity = seat_data["identity"]
+        table.add_row(
+            seat_key,
+            str(seat_data["name"]),
+            str(seat_data["model"]),
+            f"{identity['name']} ({identity['style']})",
+        )
+    console.print(table)
 
 
 def _required_opponent_seats(seats: int, human_seat: int) -> list[int]:
@@ -157,11 +221,12 @@ def _prompt_float_required(message: str, *, default: float) -> float:
 def _seed_seat_config(env_values: dict[str, str], seat_number: int) -> LiveSeatConfig | None:
     values = {
         suffix: env_values.get(seat_key(seat_number, suffix))
-        for suffix in ("NAME", "PROVIDER", "MODEL", "API_KEY", "BASE_URL", "TIMEOUT_S", "TEMPERATURE", "IDENTITY")
+        for suffix in ("NAME", "PROVIDER", "MODEL", "API_KEY", "BASE_URL", "TIMEOUT_S", "TEMPERATURE")
     }
     if not any(values.values()):
         return None
     provider = (values["PROVIDER"] or "openrouter").strip().lower()
+    model = (values["MODEL"] or default_model_for_provider(provider)).strip()
     timeout_default = values["TIMEOUT_S"] or str(DEFAULT_TIMEOUT_S)
     temperature_default = values["TEMPERATURE"] or str(DEFAULT_TEMPERATURE)
     try:
@@ -172,14 +237,13 @@ def _seed_seat_config(env_values: dict[str, str], seat_number: int) -> LiveSeatC
         temperature = DEFAULT_TEMPERATURE
     return LiveSeatConfig(
         seat_number=seat_number,
-        name=(values["NAME"] or f"Bot {seat_number}").strip(),
+        name=model,
         provider=provider,
-        model=(values["MODEL"] or default_model_for_provider(provider)).strip(),
+        model=model,
         api_key=(values["API_KEY"] or "").strip(),
         base_url=(values["BASE_URL"] or default_base_url_for_provider(provider) or "").strip() or default_base_url_for_provider(provider),
         timeout_s=timeout_s,
         temperature=temperature,
-        identity=(values.get("IDENTITY") or "").strip().lower() or None,
     )
 
 
@@ -197,29 +261,6 @@ def _prompt_provider(default_provider: str) -> str:
 def _prompt_seat_config(seat_number: int, existing: LiveSeatConfig | None = None) -> LiveSeatConfig:
     provider_default = existing.provider if existing else "openrouter"
     provider = _prompt_provider(provider_default)
-    name = _prompt_text_required(
-        f"Seat {seat_number} name",
-        default=existing.name if existing else f"Bot {seat_number}",
-        existing=existing.name if existing else None,
-    )
-    identity_choices = [{"name": "none (custom play)", "value": ""}]
-    for ident in list_identities():
-        identity_choices.append({"name": f"{ident['name']} ({ident['style']})", "value": ident["key"]})
-    if existing and existing.identity:
-        existing_ident = lookup_identity(existing.identity)
-        existing_display = f"{existing_ident.name} ({existing_ident.style})" if existing_ident else existing.identity
-    else:
-        existing_display = ""
-    identity_raw = questionary.select(
-        f"Seat {seat_number} identity", choices=identity_choices
-    ).ask()
-    if identity_raw is None:
-        raise typer.Exit(code=1)
-    identity = identity_raw.strip().lower() or None
-    if identity:
-        resolved = lookup_identity(identity)
-        if resolved:
-            console.print(f"  Using {resolved.name} identity")
     model_default = (
         existing.model if existing and existing.provider == provider else default_model_for_provider(provider)
     )
@@ -247,14 +288,13 @@ def _prompt_seat_config(seat_number: int, existing: LiveSeatConfig | None = None
     )
     return LiveSeatConfig(
         seat_number=seat_number,
-        name=name,
+        name=model,
         provider=provider,
         model=model,
         api_key=api_key,
         base_url=base_url,
         timeout_s=timeout_s,
         temperature=temperature,
-        identity=identity,
     )
 
 
@@ -280,7 +320,7 @@ def _write_live_seat_configs(seat_configs: dict[int, LiveSeatConfig]) -> None:
     remove_keys: list[str] = []
     for seat_config in seat_configs.values():
         updates.update(seat_updates(seat_config))
-        remove_keys.extend(seat_base_url_remove_keys(seat_config.seat_number, seat_config.provider))
+        remove_keys.extend(seat_remove_keys(seat_config.seat_number, seat_config.provider))
     write_env_values(updates, remove_keys=remove_keys)
 
 
@@ -297,27 +337,29 @@ def _ensure_live_seat_configs(
             missing.append(seat_number)
         else:
             configs[seat_number] = config
-    if not missing:
-        return env_values, configs
-    console.print("Live play requires a configured LLM for every opponent seat. Starting seat onboarding.")
-    prompted: dict[int, LiveSeatConfig] = {}
-    for seat_number in missing:
-        prompted[seat_number] = _prompt_seat_config(seat_number, _seed_seat_config(env_values, seat_number))
-    _write_live_seat_configs(prompted)
+    if missing:
+        console.print("Live play requires a configured LLM for every opponent seat. Starting seat onboarding.")
+        prompted: dict[int, LiveSeatConfig] = {}
+        for seat_number in missing:
+            prompted[seat_number] = _prompt_seat_config(seat_number, _seed_seat_config(env_values, seat_number))
+        configs.update(prompted)
+    _write_live_seat_configs(configs)
     reloaded = load_env_values()
-    for seat_number in missing:
+    normalized_configs: dict[int, LiveSeatConfig] = {}
+    for seat_number in _required_opponent_seats(seats, human_seat):
         config, missing_fields = inspect_seat(reloaded, seat_number)
         if config is None:
             raise typer.BadParameter(
-                f"Seat {seat_number} is still incomplete after onboarding: {', '.join(missing_fields)}"
+                f"Seat {seat_number} is incomplete after configuration normalization: {', '.join(missing_fields)}"
             )
-        configs[seat_number] = config
-    return reloaded, configs
+        normalized_configs[seat_number] = config
+    return reloaded, normalized_configs
 
 
 def _build_live_llm_controller(
     seat_config: LiveSeatConfig,
     *,
+    identity: str | None,
     status_callback=None,
 ) -> LLMController:
     provider = _provider_from_live_seat_config(seat_config)
@@ -326,7 +368,7 @@ def _build_live_llm_controller(
         provider=provider,
         failure_mode="raise",
         status_callback=status_callback,
-        identity=seat_config.identity,
+        identity=identity,
     )
 
 
@@ -345,6 +387,7 @@ def _controllers_from_live_seats(
     seats: int,
     human_seat: int,
     seat_configs: dict[int, LiveSeatConfig],
+    seat_identities: Mapping[int, str],
     *,
     status_callback=None,
 ) -> tuple[list[str], dict[int, object]]:
@@ -358,7 +401,11 @@ def _controllers_from_live_seats(
             continue
         seat_config = seat_configs[seat_number]
         names.append(seat_config.name)
-        controllers[seat_index] = _build_live_llm_controller(seat_config, status_callback=status_callback)
+        controllers[seat_index] = _build_live_llm_controller(
+            seat_config,
+            identity=seat_identities.get(seat_index),
+            status_callback=status_callback,
+        )
     return names, controllers
 
 
@@ -399,6 +446,7 @@ def _controllers_from_env_lineup(
     lineup: list[dict[str, Any]],
     env_values: dict[str, str],
     force_temperature_zero: bool,
+    seat_identities: Mapping[int, str],
 ) -> tuple[list[str], dict[int, object]]:
     names = []
     controllers: dict[int, object] = {}
@@ -411,6 +459,10 @@ def _controllers_from_env_lineup(
             continue
         if controller_type != "llm":
             raise typer.BadParameter(f"Unsupported lineup type: {controller_type}")
+        if "identity" in spec:
+            raise typer.BadParameter(
+                f"LLM lineup seat {seat + 1} cannot set identity explicitly; personalities are randomized per session."
+            )
         try:
             env_seat = int(spec["env_seat"])
         except KeyError as exc:
@@ -422,9 +474,8 @@ def _controllers_from_env_lineup(
         seat_config = _require_env_seat_config_for_simulation(env_values, env_seat)
         name = spec.get("name", seat_config.name)
         names.append(name)
-        identity = spec.get("identity", seat_config.identity)
         provider = _provider_from_live_seat_config(seat_config, force_temperature_zero=force_temperature_zero)
-        controllers[seat] = LLMController(seat_name=name, provider=provider, identity=identity)
+        controllers[seat] = LLMController(seat_name=name, provider=provider, identity=seat_identities.get(seat))
     return names, controllers
 
 
@@ -466,6 +517,7 @@ def _write_live_session_report(
     game: PokerGame,
     seat_metrics: dict[int, Any],
     end_reason: str,
+    seat_identities: Mapping[int, str],
 ) -> Path:
     report_path = Path("reports") / f"pokercli-session-{game.session_id}.txt"
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -478,6 +530,7 @@ def _write_live_session_report(
             end_reason=end_reason,
             final_stacks={seat: player.stack for seat, player in game.seats.items()},
             seat_names={seat: player.name for seat, player in game.seats.items()},
+            seat_identities={seat: _identity_payload(identity) for seat, identity in seat_identities.items()},
         ),
         encoding="utf-8",
     )
@@ -541,6 +594,7 @@ def _handle_live_llm_failure(
     controllers: dict[int, object],
     rows: dict[int, LLMStatusRow],
     seat_configs: dict[int, LiveSeatConfig],
+    seat_identities: Mapping[int, str],
     seat_index: int,
     error: LiveLLMSeatError,
 ) -> dict[int, LiveSeatConfig]:
@@ -561,7 +615,11 @@ def _handle_live_llm_failure(
         updated = _prompt_seat_config(seat_number, seat_configs[seat_number])
         seat_configs[seat_number] = updated
         _write_live_seat_configs({seat_number: updated})
-        controllers[seat_index] = _build_live_llm_controller(updated, status_callback=controllers[seat_index].status_callback if isinstance(controllers[seat_index], LLMController) else None)
+        controllers[seat_index] = _build_live_llm_controller(
+            updated,
+            identity=seat_identities.get(seat_index),
+            status_callback=controllers[seat_index].status_callback if isinstance(controllers[seat_index], LLMController) else None,
+        )
         rows[seat_index] = LLMStatusRow(
             seat=seat_index,
             name=updated.name,
@@ -650,10 +708,14 @@ def play(
     )
     status_rows = _initial_status_rows(seat_configs)
     status_visibility = {"visible": False}
+    seat_identities = _assign_session_identities(
+        [seat_number - 1 for seat_number in sorted(seat_configs)],
+    )
     names, controllers = _controllers_from_live_seats(
         resolved_seats,
         resolved_human_seat,
         seat_configs,
+        seat_identities,
         status_callback=_status_callback(status_rows, status_visibility),
     )
     controller_lineup = _controller_lineup(controllers)
@@ -666,6 +728,9 @@ def play(
         controller_lineup=controller_lineup,
     )
     session_config = asdict(game_config)
+    session_llm_metadata = _session_llm_metadata(names, controllers, seat_identities)
+    session_config["llm_seats"] = session_llm_metadata
+    _print_llm_personalities(session_llm_metadata)
     game = PokerGame(
         game_config,
         seat_names=names,
@@ -699,9 +764,13 @@ def play(
                         controllers,
                         status_rows,
                         seat_configs,
+                        seat_identities,
                         seat,
                         error,
                     )
+                    game.seats[seat].name = seat_configs[seat + 1].name
+                    if game.state is not None:
+                        game.state.seats[seat].name = seat_configs[seat + 1].name
                     if status_visibility["visible"]:
                         _print_llm_status(status_rows)
 
@@ -753,7 +822,7 @@ def play(
         summary = analytics_summary(game.hand_histories, game.config.big_blind)
         storage.record_summary(game.session_id, summary)
         _display_summary(summary)
-        report_path = _write_live_session_report(game, seat_metrics, end_reason)
+        report_path = _write_live_session_report(game, seat_metrics, end_reason, seat_identities)
         console.print(f"Session report saved to {report_path}")
     finally:
         try:
@@ -823,7 +892,14 @@ def simulate(
     else:
         lineup_data = [{"type": "rule", "name": f"Bot {seat + 1}"} for seat in range(6)]
     env_values = load_env_values()
-    names, controllers = _controllers_from_env_lineup(lineup_data, env_values, force_temperature_zero=True)
+    llm_seats = [seat for seat, spec in enumerate(lineup_data) if spec.get("type", "rule") == "llm"]
+    seat_identities = _assign_session_identities(llm_seats, seed=seed)
+    names, controllers = _controllers_from_env_lineup(
+        lineup_data,
+        env_values,
+        force_temperature_zero=True,
+        seat_identities=seat_identities,
+    )
     controller_lineup = _controller_lineup(controllers)
     game_config = GameConfig(
         seat_count=len(lineup_data),
@@ -835,6 +911,9 @@ def simulate(
         controller_lineup=controller_lineup,
     )
     session_config = asdict(game_config)
+    session_llm_metadata = _session_llm_metadata(names, controllers, seat_identities)
+    session_config["llm_seats"] = session_llm_metadata
+    _print_llm_personalities(session_llm_metadata)
     game = PokerGame(
         game_config,
         seat_names=names,

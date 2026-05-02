@@ -290,8 +290,7 @@ For each opponent seat (seat number `N`), these keys configure the LLM:
 | Key | Description | Example | Required? |
 |---|---|---|---|
 | `POKER_SEAT_N_TYPE` | Controller type | `llm` | ✅ |
-| `POKER_SEAT_N_NAME` | Display name | `GPT-4o Bot` | ✅ |
-| `POKER_SEAT_N_IDENTITY` | Bot poker persona | `nina` | Optional |
+| `POKER_SEAT_N_NAME` | Derived display name (always matches `MODEL`) | `openai/gpt-4o` | ✅ |
 | `POKER_SEAT_N_PROVIDER` | LLM provider | `openai` | ✅ |
 | `POKER_SEAT_N_MODEL` | Model ID | `gpt-4o` | ✅ |
 | `POKER_SEAT_N_API_KEY` | API key | `sk-...` | ✅ |
@@ -308,8 +307,7 @@ POKER_STACK_BB=100
 POKER_MAX_HANDS=25
 
 POKER_SEAT_2_TYPE=llm
-POKER_SEAT_2_NAME=OpenRouter GPT
-POKER_SEAT_2_IDENTITY=ada
+POKER_SEAT_2_NAME=openai/gpt-4o
 POKER_SEAT_2_PROVIDER=openrouter
 POKER_SEAT_2_MODEL=openai/gpt-4o
 POKER_SEAT_2_API_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxx
@@ -318,8 +316,7 @@ POKER_SEAT_2_TEMPERATURE=0
 POKER_SEAT_2_BASE_URL=https://openrouter.ai/api/v1
 
 POKER_SEAT_3_TYPE=llm
-POKER_SEAT_3_NAME=NVIDIA Llama
-POKER_SEAT_3_IDENTITY=nina
+POKER_SEAT_3_NAME=nvidia/llama-3.1-nemotron-nano-8b-v1
 POKER_SEAT_3_PROVIDER=nvidia
 POKER_SEAT_3_MODEL=nvidia/llama-3.1-nemotron-nano-8b-v1
 POKER_SEAT_3_API_KEY=nvapi-xxxxxxxxxxxxxxxxxxxxxxxx
@@ -332,7 +329,7 @@ POKER_SEAT_3_BASE_URL=https://integrate.api.nvidia.com/v1
 
 Because giving the bots little poker personalities is half the fun. 🎭
 
-Each LLM seat can be assigned a poker persona via the `POKER_SEAT_N_IDENTITY` key in `.env`. The identity's description is injected into the LLM's system prompt, shaping how the bot plays.
+Each LLM seat rolls a poker persona at session start. The selected identity is injected into the system prompt and stays fixed for that seat for the whole session. Identities are no longer configured in `.env`.
 
 Six identities are included out of the box:
 
@@ -345,7 +342,7 @@ Six identities are included out of the box:
 | `jacey` | Jacey | limp-trap | An extreme limper who enters almost every pot preflop with any two cards. Rarely raises or 3-bets without a true premium. Postflop plays passively until hitting a hand, then suddenly overbets the pot for maximum value. Folds easily to aggression when she misses. |
 | `sayoko` | Sayoko | unpredictable | A top champion who is neat and disciplined when the situation demands it, but equally capable of opening up and playing loose, splashy poker when sensing weakness. Unpredictable bet sizing, occasional limp-traps with monsters, and ruthless exploitation of opponent tendencies. |
 
-If no identity is set, the LLM uses a generic poker prompt without any specific persona.
+Session reports and debug logs record which identity each LLM seat rolled.
 
 ### Supported LLM Providers
 
@@ -568,6 +565,7 @@ python -m pokercli simulate --lineup lineup.json --json-out summary.json
 **How `env_seat` works:**
 - LLM lineup entries reference seat blocks in your `.env` file by number.
 - The simulation reuses provider, model, base URL, timeout, and API key from the `.env` seat block.
+- Personalities are randomized per session; lineup entries cannot pin an identity.
 - Temperature is **forced to 0** (deterministic) for reproducibility.
 - Rule bots don't need `.env` entries.
 

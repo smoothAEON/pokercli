@@ -108,6 +108,14 @@ def render_table(view: SeatView) -> str:
             lines.append(f"  {action.action.value}: {action.call_amount}")
         else:
             lines.append(f"  {action.action.value}")
+    lines.append("Hand strength:")
+    current = view.hand_strength.current_label
+    if view.hand_strength.current_rank is not None:
+        current += f" {view.hand_strength.current_rank}"
+    lines.append(f"  Current: {current}")
+    lines.append("  By river:")
+    for bucket, probability in view.hand_strength.potential_by_river.items():
+        lines.append(f"    {bucket.replace('_', ' ').title()}: {probability:.2%}")
     return "\n".join(lines)
 
 
@@ -177,6 +185,7 @@ def render_session_report(
     end_reason: str,
     final_stacks: Mapping[int, int],
     seat_names: Mapping[int, str],
+    seat_identities: Mapping[int, Mapping[str, str]] | None = None,
 ) -> str:
     lines = [
         "PokerCLI Session Report",
@@ -201,11 +210,16 @@ def render_session_report(
         max_drawdown = metric.max_drawdown if metric is not None else 0
         volatility = metric.volatility if metric is not None else 0.0
         risk_of_ruin = metric.risk_of_ruin if metric is not None else 0.0
+        personality = ""
+        if seat_identities is not None and seat in seat_identities:
+            identity = seat_identities[seat]
+            personality = f" personality={identity['name']} ({identity['style']})"
         lines.append(
             f"  Seat {seat + 1} {seat_names[seat]}: final_stack={final_stack} pnl={pnl} "
             f"hands={hands} bb_per_100={bb_per_100:.2f} vpip={vpip:.2%} pfr={pfr:.2%} "
             f"three_bet={three_bet_rate:.2%} showdown_win={showdown_win_rate:.2%} "
             f"max_drawdown={max_drawdown} volatility={volatility:.2f} risk_of_ruin={risk_of_ruin:.2%}"
+            f"{personality}"
         )
     lines.append("")
     lines.append("Hand Details:")

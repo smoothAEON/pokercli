@@ -16,7 +16,6 @@ DEFAULT_MAX_HANDS = 50
 DEFAULT_TIMEOUT_S = 30.0
 DEFAULT_TEMPERATURE = 0.0
 SUPPORTED_PROVIDERS = ("openai", "anthropic", "openrouter", "nvidia", "openai-compatible")
-SUPPORTED_IDENTITY_KEYS = ("nina", "marco", "viktor", "ada")
 
 
 @dataclass(slots=True)
@@ -29,7 +28,6 @@ class LiveSeatConfig:
     base_url: str | None = None
     timeout_s: float = DEFAULT_TIMEOUT_S
     temperature: float = DEFAULT_TEMPERATURE
-    identity: str | None = None
 
     def to_profile(self) -> ProviderProfile:
         return ProviderProfile(
@@ -108,10 +106,11 @@ def default_base_url_for_provider(provider: str) -> str | None:
 def inspect_seat(values: dict[str, str], seat_number: int) -> tuple[LiveSeatConfig | None, list[str]]:
     relevant_keys = {
         suffix: values.get(seat_key(seat_number, suffix))
-        for suffix in ("TYPE", "NAME", "PROVIDER", "MODEL", "API_KEY", "BASE_URL", "TIMEOUT_S", "TEMPERATURE", "IDENTITY")
+        for suffix in ("TYPE", "NAME", "PROVIDER", "MODEL", "API_KEY", "BASE_URL", "TIMEOUT_S", "TEMPERATURE")
     }
     provider = (relevant_keys["PROVIDER"] or "").strip().lower()
-    required = ["TYPE", "NAME", "PROVIDER", "MODEL", "API_KEY", "TIMEOUT_S", "TEMPERATURE"]
+    model = (relevant_keys["MODEL"] or "").strip()
+    required = ["TYPE", "PROVIDER", "MODEL", "API_KEY", "TIMEOUT_S", "TEMPERATURE"]
     if provider == "openai-compatible":
         required.append("BASE_URL")
     missing = [field for field in required if not (relevant_keys[field] or "").strip()]
@@ -130,14 +129,13 @@ def inspect_seat(values: dict[str, str], seat_number: int) -> tuple[LiveSeatConf
     return (
         LiveSeatConfig(
             seat_number=seat_number,
-            name=(relevant_keys["NAME"] or "").strip(),
+            name=model,
             provider=provider,
-            model=(relevant_keys["MODEL"] or "").strip(),
+            model=model,
             api_key=(relevant_keys["API_KEY"] or "").strip(),
             base_url=base_url,
             timeout_s=timeout_s,
             temperature=temperature,
-            identity=(relevant_keys.get("IDENTITY") or "").strip().lower() or None,
         ),
         [],
     )
@@ -155,8 +153,6 @@ def seat_updates(seat_config: LiveSeatConfig) -> dict[str, str]:
     }
     if seat_config.base_url:
         updates[seat_key(seat_config.seat_number, "BASE_URL")] = seat_config.base_url
-    if seat_config.identity:
-        updates[seat_key(seat_config.seat_number, "IDENTITY")] = seat_config.identity
     return updates
 
 
@@ -169,10 +165,11 @@ def table_updates(seats: int, human_seat: int, stack_bb: int, max_hands: int) ->
     }
 
 
-def seat_base_url_remove_keys(seat_number: int, provider: str) -> list[str]:
+def seat_remove_keys(seat_number: int, provider: str) -> list[str]:
+    remove_keys = [seat_key(seat_number, "IDENTITY")]
     if provider.lower() in {"openai-compatible", "openrouter"}:
-        return []
-    return [seat_key(seat_number, "BASE_URL")]
+        return remove_keys
+    return [*remove_keys, seat_key(seat_number, "BASE_URL")]
 
 
 def _int_value(raw: str | None) -> int | None:

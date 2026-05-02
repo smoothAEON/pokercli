@@ -107,6 +107,14 @@ def decision_json(**overrides: object) -> str:
     return json.dumps(make_decision_payload(**overrides))
 
 
+def assert_logged_decision(decision: dict[str, object]) -> None:
+    for key, value in make_decision_payload().items():
+        assert decision[key] == value
+    engine_hand_strength = decision["engine_hand_strength"]
+    assert isinstance(engine_hand_strength, dict)
+    assert set(engine_hand_strength) == {"current_rank", "current_label", "potential_by_river"}
+
+
 def _patch_runtime_paths(monkeypatch, tmp_path: Path) -> tuple[Path, Path]:
     env_file = tmp_path / "custom.env"
     db_file = tmp_path / "poker.sqlite3"
@@ -141,15 +149,16 @@ def _patch_repo_root_runtime(monkeypatch, tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _seat_config(seat_number: int, *, provider: str = "openai") -> LiveSeatConfig:
+    model = (
+        "openai/gpt-4o"
+        if provider == "openrouter"
+        else "nvidia/llama-3.1-nemotron-nano-8b-v1" if provider == "nvidia" else "gpt-5.4-mini"
+    )
     return LiveSeatConfig(
         seat_number=seat_number,
-        name=f"Bot {seat_number}",
+        name=model,
         provider=provider,
-        model=(
-            "openai/gpt-4o"
-            if provider == "openrouter"
-            else "nvidia/llama-3.1-nemotron-nano-8b-v1" if provider == "nvidia" else "gpt-5.4-mini"
-        ),
+        model=model,
         api_key=f"secret-{seat_number}",
         base_url=(
             "https://openrouter.ai/api/v1"
@@ -195,8 +204,8 @@ def _read_single_session_report(base_dir: Path) -> tuple[Path, str]:
 
 def test_setup_command_writes_repo_root_env(monkeypatch, tmp_path: Path) -> None:
     env_file, _ = _patch_repo_root_runtime(monkeypatch, tmp_path)
-    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "100", "50", "Bot 2", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
+    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "100", "50", "gpt-5.4-mini", "30", "0"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["secret"]))
     result = runner.invoke(app, ["setup"])
     assert result.exit_code == 0
@@ -207,14 +216,17 @@ def test_setup_command_writes_repo_root_env(monkeypatch, tmp_path: Path) -> None
     assert values["POKER_STACK_BB"] == "100"
     assert values["POKER_MAX_HANDS"] == "50"
     assert values["POKER_SEAT_2_TYPE"] == "llm"
+    assert values["POKER_SEAT_2_NAME"] == "gpt-5.4-mini"
     assert values["POKER_SEAT_2_PROVIDER"] == "openai"
+    assert values["POKER_SEAT_2_MODEL"] == "gpt-5.4-mini"
     assert values["POKER_SEAT_2_API_KEY"] == "secret"
+    assert "POKER_SEAT_2_IDENTITY" not in values
 
 
 def test_setup_command_honors_poker_env_path_override(monkeypatch, tmp_path: Path) -> None:
     env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
-    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "100", "50", "Bot 2", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
+    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "100", "50", "gpt-5.4-mini", "30", "0"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["secret"]))
     result = runner.invoke(app, ["setup"])
     assert result.exit_code == 0
@@ -225,21 +237,24 @@ def test_setup_command_honors_poker_env_path_override(monkeypatch, tmp_path: Pat
     assert values["POKER_STACK_BB"] == "100"
     assert values["POKER_MAX_HANDS"] == "50"
     assert values["POKER_SEAT_2_TYPE"] == "llm"
+    assert values["POKER_SEAT_2_NAME"] == "gpt-5.4-mini"
     assert values["POKER_SEAT_2_PROVIDER"] == "openai"
     assert values["POKER_SEAT_2_API_KEY"] == "secret"
+    assert "POKER_SEAT_2_IDENTITY" not in values
 
 
 def test_setup_command_accepts_nvidia_provider(monkeypatch, tmp_path: Path) -> None:
     env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "pokercli.cli.questionary.text",
-        PromptSequence(["2", "100", "50", "Bot 2", "nvidia/llama-3.1-nemotron-nano-8b-v1", "30", "0"]),
+        PromptSequence(["2", "100", "50", "nvidia/llama-3.1-nemotron-nano-8b-v1", "30", "0"]),
     )
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["nvidia", ""]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["nvidia"]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["nvidia-secret"]))
     result = runner.invoke(app, ["setup"])
     assert result.exit_code == 0
     values = dotenv_values(env_file)
+    assert values["POKER_SEAT_2_NAME"] == "nvidia/llama-3.1-nemotron-nano-8b-v1"
     assert values["POKER_SEAT_2_PROVIDER"] == "nvidia"
     assert values["POKER_SEAT_2_API_KEY"] == "nvidia-secret"
 
@@ -259,8 +274,8 @@ def test_simulate_and_replay_commands_smoke(monkeypatch, tmp_path: Path) -> None
 
 def test_play_prompts_for_player_count_when_seats_not_provided(monkeypatch, tmp_path: Path) -> None:
     env_file, db_path = _patch_runtime_paths(monkeypatch, tmp_path)
-    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "Bot 2", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
+    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "gpt-5.4-mini", "30", "0"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["secret"]))
     monkeypatch.setattr("pokercli.cli.questionary.confirm", lambda *args, **kwargs: DummyPrompt(False))
     monkeypatch.setattr("pokercli.cli.provider_from_profile", lambda profile, api_key: DummyProvider(profile))
@@ -274,6 +289,7 @@ def test_play_prompts_for_player_count_when_seats_not_provided(monkeypatch, tmp_
     assert values["POKER_HUMAN_SEAT"] == "1"
     assert values["POKER_STACK_BB"] == "100"
     assert values["POKER_MAX_HANDS"] == "1"
+    assert values["POKER_SEAT_2_NAME"] == "gpt-5.4-mini"
     assert values["POKER_SEAT_2_API_KEY"] == "secret"
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 1
@@ -290,18 +306,55 @@ def test_play_writes_report_when_user_stops(monkeypatch, tmp_path: Path) -> None
 
     assert result.exit_code == 0
     assert "Session report saved to" in result.stdout
+    assert "LLM Personalities" in result.stdout
     assert "reports\\pokercli-session-" in result.stdout
     report_path, report_text = _read_single_session_report(tmp_path)
     assert report_path.name.startswith("pokercli-session-")
     assert "End reason: user-stopped" in report_text
     assert "Hands completed: 1" in report_text
+    assert "personality=" in report_text
     assert "Hand Details:" in report_text
     assert "result=" in report_text
 
 
+def test_play_normalizes_stale_name_and_removes_identity_from_env(monkeypatch, tmp_path: Path) -> None:
+    env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
+    write_env_values(
+        {
+            "POKER_SEATS": "2",
+            "POKER_HUMAN_SEAT": "1",
+            "POKER_STACK_BB": "100",
+            "POKER_MAX_HANDS": "1",
+            "POKER_SEAT_2_TYPE": "llm",
+            "POKER_SEAT_2_NAME": "Legacy Bot",
+            "POKER_SEAT_2_IDENTITY": "nina",
+            "POKER_SEAT_2_PROVIDER": "openai",
+            "POKER_SEAT_2_MODEL": "gpt-5.4-mini",
+            "POKER_SEAT_2_API_KEY": "secret",
+            "POKER_SEAT_2_TIMEOUT_S": "30",
+            "POKER_SEAT_2_TEMPERATURE": "0",
+        },
+        path=env_file,
+    )
+    monkeypatch.setattr("pokercli.cli.questionary.select", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected select prompt")))
+    monkeypatch.setattr("pokercli.cli.questionary.text", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected text prompt")))
+    monkeypatch.setattr("pokercli.cli.questionary.password", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected password prompt")))
+    monkeypatch.setattr("pokercli.cli.questionary.confirm", lambda *args, **kwargs: DummyPrompt(False))
+    monkeypatch.setattr("pokercli.cli.provider_from_profile", lambda profile, api_key: DummyProvider(profile))
+    _patch_scripted_live_controllers(monkeypatch)
+
+    result = runner.invoke(app, ["play", "--seats", "2", "--max-hands", "1"])
+
+    assert result.exit_code == 0
+    values = dotenv_values(env_file)
+    assert values["POKER_SEAT_2_NAME"] == "gpt-5.4-mini"
+    assert values["POKER_SEAT_2_MODEL"] == "gpt-5.4-mini"
+    assert "POKER_SEAT_2_IDENTITY" not in values
+
+
 def test_play_with_explicit_seats_skips_player_count_prompt(monkeypatch, tmp_path: Path) -> None:
     env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
-    text_prompts = PromptSequence(["Bot 2", "gpt-5.4-mini", "30", "0"])
+    text_prompts = PromptSequence(["gpt-5.4-mini", "30", "0"])
 
     def prompt_text(message, *args, **kwargs):
         if message == "How many players?":
@@ -309,7 +362,7 @@ def test_play_with_explicit_seats_skips_player_count_prompt(monkeypatch, tmp_pat
         return text_prompts(message, *args, **kwargs)
 
     monkeypatch.setattr("pokercli.cli.questionary.text", prompt_text)
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["secret"]))
     monkeypatch.setattr("pokercli.cli.questionary.confirm", lambda *args, **kwargs: DummyPrompt(False))
     monkeypatch.setattr("pokercli.cli.provider_from_profile", lambda profile, api_key: DummyProvider(profile))
@@ -333,8 +386,8 @@ def test_play_partial_env_prompts_only_missing_seat(monkeypatch, tmp_path: Path)
         max_hands=1,
         configs=[_seat_config(2)],
     )
-    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["Bot 3", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
+    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["gpt-5.4-mini", "30", "0"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence(["secret-3"]))
     monkeypatch.setattr("pokercli.cli.questionary.confirm", lambda *args, **kwargs: DummyPrompt(False))
     monkeypatch.setattr("pokercli.cli.provider_from_profile", lambda profile, api_key: DummyProvider(profile))
@@ -348,8 +401,8 @@ def test_play_partial_env_prompts_only_missing_seat(monkeypatch, tmp_path: Path)
 
 def test_play_cancelled_onboarding_exits_without_env(monkeypatch, tmp_path: Path) -> None:
     env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
-    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["Bot 2", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
+    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["gpt-5.4-mini", "30", "0"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence([""]))
     result = runner.invoke(app, ["play", "--seats", "2", "--max-hands", "1"])
     assert result.exit_code == 1
@@ -360,8 +413,8 @@ def test_play_cancelled_onboarding_without_existing_env_does_not_write_partial_d
     monkeypatch, tmp_path: Path
 ) -> None:
     env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
-    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "Bot 2", "gpt-5.4-mini", "30", "0"]))
-    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai", ""]))
+    monkeypatch.setattr("pokercli.cli.questionary.text", PromptSequence(["2", "gpt-5.4-mini", "30", "0"]))
+    monkeypatch.setattr("pokercli.cli.questionary.select", PromptSequence(["openai"]))
     monkeypatch.setattr("pokercli.cli.questionary.password", PromptSequence([""]))
     result = runner.invoke(app, ["play", "--max-hands", "1"])
     assert result.exit_code == 1
@@ -377,11 +430,18 @@ def test_play_rejects_non_default_human_seat(monkeypatch, tmp_path: Path) -> Non
 
 def test_controllers_from_live_seats_use_human_and_llm_only(monkeypatch) -> None:
     monkeypatch.setattr("pokercli.cli.provider_from_profile", lambda profile, api_key: DummyProvider(profile))
-    from pokercli.cli import _controllers_from_live_seats
+    from pokercli.cli import _assign_session_identities, _controllers_from_live_seats
 
     seat_configs = {seat_number: _seat_config(seat_number) for seat_number in range(2, 7)}
     for seats in (2, 6):
-        names, controllers = _controllers_from_live_seats(seats, 1, seat_configs, status_callback=None)
+        seat_identities = _assign_session_identities(list(range(1, seats)), seed=7)
+        names, controllers = _controllers_from_live_seats(
+            seats,
+            1,
+            seat_configs,
+            seat_identities,
+            status_callback=None,
+        )
         assert names[0] == "You"
         assert isinstance(controllers[0], HumanController)
         for seat in range(1, seats):
@@ -472,8 +532,22 @@ def test_simulate_llm_lineup_uses_env_seat_and_forces_temperature_zero(monkeypat
     monkeypatch.setattr("pokercli.agents.controllers.LLMController.act", _scripted_act)
     result = runner.invoke(app, ["simulate", "--hands", "1", "--lineup", str(lineup_file)])
     assert result.exit_code == 0
+    assert "LLM Personalities" in result.stdout
     assert captured_profiles[0].api_key_env == "POKER_SEAT_2_API_KEY"
     assert captured_profiles[0].temperature == 0.0
+
+
+def test_assign_session_identities_is_seeded_and_unique_until_exhausted() -> None:
+    from pokercli.cli import _assign_session_identities
+
+    seats = [0, 1, 2, 3]
+    first = _assign_session_identities(seats, seed=7)
+    second = _assign_session_identities(seats, seed=7)
+    third = _assign_session_identities(seats, seed=8)
+
+    assert first == second
+    assert first != third
+    assert len(set(first.values())) == len(seats)
 
 
 def test_simulate_llm_lineup_requires_complete_env_seat(monkeypatch, tmp_path: Path) -> None:
@@ -508,6 +582,21 @@ def test_simulate_llm_lineup_rejects_incomplete_env_seat_fields(monkeypatch, tmp
     assert "API_KEY" in result.stderr
 
 
+def test_simulate_llm_lineup_rejects_explicit_identity(monkeypatch, tmp_path: Path) -> None:
+    env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
+    lineup_file = tmp_path / "lineup.json"
+    _write_live_env(env_file, seats=2, human_seat=1, configs=[_seat_config(2)])
+    lineup_file.write_text(
+        json.dumps([{"type": "llm", "env_seat": 2, "identity": "nina"}]),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["simulate", "--hands", "1", "--lineup", str(lineup_file)])
+
+    assert result.exit_code == 2
+    assert "cannot set identity explicitly" in result.stderr
+
+
 def test_simulate_debug_llm_log_writes_single_session_file(monkeypatch, tmp_path: Path) -> None:
     env_file, db_path = _patch_runtime_paths(monkeypatch, tmp_path)
     lineup_file = tmp_path / "lineup.json"
@@ -530,17 +619,52 @@ def test_simulate_debug_llm_log_writes_single_session_file(monkeypatch, tmp_path
     assert payload["mode"] == "simulate"
     assert payload["debug_level"] == "DEBUG"
     assert payload["config"]["max_hands"] == 1
+    identity = payload["config"]["llm_seats"]["1"]["identity"]
+    assert payload["config"]["llm_seats"]["1"]["model"] == "gpt-5.4-mini"
+    assert {"key", "name", "style"} <= set(identity)
     assert payload["calls"]
     first_call = payload["calls"][0]
     assert first_call["request_kind"] == "initial"
     assert first_call["turn_request"]["metadata"]["seat"] == 0
-    assert first_call["decision"] == make_decision_payload()
+    system_prompt = first_call["provider_request"]["body"]["messages"][0]["content"]
+    assert identity["name"] in system_prompt
+    assert_logged_decision(first_call["decision"])
     assert first_call["provider_request"]["url"] == "https://example.invalid/v1/chat/completions"
     assert first_call["provider_response"]["status_code"] == 200
     with sqlite3.connect(db_path) as connection:
         row = connection.execute("SELECT response_json FROM llm_turns LIMIT 1").fetchone()
     assert row is not None
-    assert json.loads(row[0])["decision"] == make_decision_payload()
+    assert_logged_decision(json.loads(row[0])["decision"])
+
+
+def test_simulate_session_keeps_identity_stable_across_multiple_hands(monkeypatch, tmp_path: Path) -> None:
+    env_file, _ = _patch_runtime_paths(monkeypatch, tmp_path)
+    lineup_file = tmp_path / "lineup.json"
+    _write_live_env(env_file, seats=2, human_seat=1, configs=[_seat_config(2)])
+    lineup_file.write_text(
+        json.dumps(
+            [
+                {"type": "llm", "env_seat": 2, "name": "GPT Seat"},
+                {"type": "rule", "name": "Rule Seat"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("pokercli.cli.provider_from_profile", lambda profile, api_key: LoggingProvider(profile))
+
+    result = runner.invoke(app, ["simulate", "--hands", "2", "--seed", "9", "--lineup", str(lineup_file), "--debug-llm-log"])
+
+    assert result.exit_code == 0
+    payload = json.loads(next((tmp_path / "llm_debug").glob("*.json")).read_text(encoding="utf-8"))
+    identity = payload["config"]["llm_seats"]["1"]["identity"]
+    prompts = [
+        call["provider_request"]["body"]["messages"][0]["content"]
+        for call in payload["calls"]
+        if call["turn_request"]["metadata"]["seat"] == 0
+    ]
+    assert len(prompts) >= 2
+    assert all(identity["name"] in prompt for prompt in prompts)
+    assert all(identity["style"] in prompt for prompt in prompts)
 
 
 def test_poker_debug_llm_env_var_enables_logging_and_flag_can_disable_it(monkeypatch, tmp_path: Path) -> None:

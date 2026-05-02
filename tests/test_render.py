@@ -1,5 +1,5 @@
 from pokercli.analytics import compute_seat_analytics
-from pokercli.engine import ActionRecord, ActionType, GameConfig, LegalAction, PublicTableState, SeatView, Street
+from pokercli.engine import ActionRecord, ActionType, GameConfig, LegalAction, PublicTableState, SeatView, Street, compute_hand_strength
 from pokercli.engine.models import HandHistory, PotAward, PotSlice, SeatSnapshot
 from pokercli.render import format_card_code, render_hand_history, render_session_report, render_table
 
@@ -88,18 +88,20 @@ def _showdown_history(*, winner_seats: tuple[int, ...], second_revealed: bool) -
 
 
 def test_render_table_uses_suit_symbols() -> None:
+    hole_cards = cards(["As", "Kd"])
+    board = cards(["2c", "7d", "Jh"])
     view = SeatView(
         seat=0,
         player_name="Seat 1",
         session_id="session-1",
         hand_no=1,
-        hole_cards=cards(["As", "Kd"]),
+        hole_cards=hole_cards,
         stack=1_000,
         to_call=0,
         legal_actions=[LegalAction(ActionType.CHECK), LegalAction(ActionType.BET, min_total=100, max_total=1_000)],
         table=PublicTableState(
             street=Street.FLOP,
-            board=cards(["2c", "7d", "Jh"]),
+            board=board,
             pot=300,
             current_bet=0,
             button_seat=1,
@@ -107,14 +109,18 @@ def test_render_table_uses_suit_symbols() -> None:
             actions=[],
         ),
         session_memory=[],
+        hand_strength=compute_hand_strength(hole_cards, board),
     )
 
     rendered = render_table(view)
     assert "Bankroll" not in rendered
     assert "Board:" in rendered
     assert "+----+ +----+ +----+" in rendered
-    assert "♠" in rendered
-    assert "♦" in rendered
+    assert "\u2660" in rendered
+    assert "\u2666" in rendered
+    assert "Hand strength:" in rendered
+    assert "Current: High Card, Ace-high (0, 14, 13, 11, 7, 2)" in rendered
+    assert "By river:" in rendered
 
 
 def test_render_hand_history_adds_result_labels_and_keeps_hidden_loser_hidden() -> None:
@@ -129,7 +135,7 @@ def test_render_hand_history_adds_result_labels_and_keeps_hidden_loser_hidden() 
     assert "Full House" not in rendered
     assert serialized["board"] == ["AS", "KD", "QC", "JC", "TD"]
     assert serialized["seat_results"][0]["hole_cards"] == ["JH", "TD"]
-    assert format_card_code(serialized["board"][0]) == "A♠"
+    assert format_card_code(serialized["board"][0]) == "A\u2660"
 
 
 def test_render_hand_history_marks_split_pot_winners_as_draw() -> None:
@@ -153,13 +159,15 @@ def test_render_session_report_includes_summary_actions_awards_and_full_cards() 
         end_reason="user-stopped",
         final_stacks={0: 1_250, 1: 750},
         seat_names={0: "Seat 1", 1: "Seat 2"},
+        seat_identities={1: {"key": "nina", "name": "Nina Tight", "style": "tight-aggressive"}},
     )
 
     assert "PokerCLI Session Report" in report
     assert "End reason: user-stopped" in report
     assert "Seat Summary:" in report
     assert "final_stack=1250 pnl=250" in report
+    assert "personality=Nina Tight (tight-aggressive)" in report
     assert "Hand Details:" in report
     assert "Actions:" in report
     assert "Awards:" in report
-    assert "cards=9♠ 9♣ hand=Full House, Aces full of Kings" in report
+    assert "cards=9\u2660 9\u2663 hand=Full House, Aces full of Kings" in report

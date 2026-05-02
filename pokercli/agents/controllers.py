@@ -303,6 +303,10 @@ class LLMController:
                     )
                 else:
                     decision = parsed_decision.action_decision
+                    decision_payload = {
+                        **parsed_decision.log_payload,
+                        "engine_hand_strength": view.hand_strength.to_dict(),
+                    }
                     if _decision_is_legal(view, decision):
                         self.failure_count = 0
                         self.turn_logs.append(
@@ -315,7 +319,7 @@ class LLMController:
                                 outcome="accepted",
                                 error=None,
                                 response=response,
-                                decision=parsed_decision.log_payload,
+                                decision=decision_payload,
                             )
                         )
                         self.last_error = None
@@ -332,7 +336,7 @@ class LLMController:
                             outcome="illegal_action",
                             error=error,
                             response=response,
-                            decision=parsed_decision.log_payload,
+                            decision=decision_payload,
                         )
                     )
                 if attempt == 0:

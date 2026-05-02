@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from pokercli.agents import LLMController, LiveLLMSeatError
-from pokercli.engine import ActionType, LegalAction, PublicTableState, SeatView, Street
+from pokercli.engine import ActionType, LegalAction, PublicTableState, SeatView, Street, compute_hand_strength
 from pokercli.engine.cards import Card
 from pokercli.llm import LLMTurnRequest, LLMTurnResponse, ProviderProfile, ProviderRequestDebug, ProviderResponseDebug
 from pokercli.llm.providers import LLMProviderError, NVIDIAProvider, OpenAIProvider, OpenRouterProvider, provider_from_profile
@@ -41,18 +41,20 @@ def decision_json(**overrides: object) -> str:
 
 
 def make_view() -> SeatView:
+    hole_cards = (Card.from_code("As"), Card.from_code("Kd"))
+    board = (Card.from_code("2c"), Card.from_code("7d"), Card.from_code("Jh"))
     return SeatView(
         seat=0,
         player_name="Seat 1",
         session_id="session-1",
         hand_no=3,
-        hole_cards=(Card.from_code("As"), Card.from_code("Kd")),
+        hole_cards=hole_cards,
         stack=1_000,
         to_call=0,
         legal_actions=[LegalAction(ActionType.CHECK), LegalAction(ActionType.BET, min_total=100, max_total=1_000)],
         table=PublicTableState(
             street=Street.FLOP,
-            board=(Card.from_code("2c"), Card.from_code("7d"), Card.from_code("Jh")),
+            board=board,
             pot=300,
             current_bet=0,
             button_seat=1,
@@ -60,7 +62,15 @@ def make_view() -> SeatView:
             actions=[],
         ),
         session_memory=[],
+        hand_strength=compute_hand_strength(hole_cards, board),
     )
+
+
+def logged_decision_payload(view: SeatView, **overrides: object) -> dict[str, object]:
+    return {
+        **make_decision_payload(**overrides),
+        "engine_hand_strength": view.hand_strength.to_dict(),
+    }
 
 
 @dataclass
@@ -127,7 +137,8 @@ def test_llm_controller_retries_malformed_json_once() -> None:
             ]
         ),
     )
-    decision = controller.act(make_view())
+    view = make_view()
+    decision = controller.act(view)
     assert decision.normalized_action() == ActionType.CHECK
     assert controller.provider.calls == 2
     assert len(controller.turn_logs) == 2
@@ -138,7 +149,7 @@ def test_llm_controller_retries_malformed_json_once() -> None:
     assert controller.turn_logs[0].provider_response["body"]["content"] == "not-json"
     assert controller.turn_logs[1].request_kind == "retry"
     assert controller.turn_logs[1].outcome == "accepted"
-    assert controller.turn_logs[1].decision == make_decision_payload()
+    assert controller.turn_logs[1].decision == logged_decision_payload(view)
     assert controller.turn_logs[1].turn_response == {
         "provider": "stub",
         "model": "stub-model",
@@ -155,7 +166,8 @@ def test_llm_controller_retries_when_required_metric_is_missing() -> None:
         provider=StubProvider(responses=[json.dumps(invalid_payload), valid_response]),
     )
 
-    decision = controller.act(make_view())
+    view = make_view()
+    decision = controller.act(view)
 
     assert decision.normalized_action() == ActionType.CHECK
     assert controller.provider.calls == 2
@@ -164,7 +176,7 @@ def test_llm_controller_retries_when_required_metric_is_missing() -> None:
     assert controller.turn_logs[0].decision is None
     assert "confidence" in controller.turn_logs[0].error
     assert controller.turn_logs[1].outcome == "accepted"
-    assert controller.turn_logs[1].decision == make_decision_payload()
+    assert controller.turn_logs[1].decision == logged_decision_payload(view)
 
 
 def test_llm_controller_logs_illegal_but_well_formed_decision() -> None:
@@ -180,12 +192,14 @@ def test_llm_controller_logs_illegal_but_well_formed_decision() -> None:
         provider=StubProvider(responses=[illegal_response, valid_response]),
     )
 
-    decision = controller.act(make_view())
+    view = make_view()
+    decision = controller.act(view)
 
     assert decision.normalized_action() == ActionType.CHECK
     assert len(controller.turn_logs) == 2
     assert controller.turn_logs[0].outcome == "illegal_action"
-    assert controller.turn_logs[0].decision == make_decision_payload(
+    assert controller.turn_logs[0].decision == logged_decision_payload(
+        view,
         action="bet",
         amount=50,
         reasoning_summary="Probe small into the field.",
@@ -210,6 +224,8 @@ def test_llm_controller_disables_after_repeated_failures() -> None:
 def test_seat_view_prompt_payload_omits_bankroll() -> None:
     payload = make_view().to_prompt_payload()
     assert "bankroll" not in payload
+    assert payload["hand_strength"]["current_label"] == "High Card, Ace-high"
+    assert payload["hand_strength"]["current_rank"] == [0, 14, 13, 11, 7, 2]
 
 
 def test_llm_controller_raises_in_live_mode() -> None:
@@ -351,16 +367,29 @@ class PromptCapturingProvider:
             name="stub", provider="openai", model="stub-model", api_key_env="TEST_KEY",
         )
         self.captured_prompts: list[str] = []
+        self.requests: list[LLMTurnRequest] = []
         self._response = response
 
     def complete_turn(self, request):
         self.captured_prompts.append(request.system_prompt)
+        self.requests.append(request)
         return LLMTurnResponse(
             provider="stub", model="stub-model", content=self._response,
             raw_payload={"content": self._response}, latency_ms=1,
             provider_request=ProviderRequestDebug(url="https://x", body={}),
             provider_response=ProviderResponseDebug(status_code=200, body={}),
         )
+
+
+def test_llm_request_includes_engine_hand_strength_without_schema_change() -> None:
+    provider = PromptCapturingProvider()
+    controller = LLMController(seat_name="Seat 1", provider=provider)
+    controller.act(make_view())
+    request = provider.requests[0]
+    assert '"hand_strength"' in request.user_prompt
+    assert request.response_schema is not None
+    assert "engine_hand_strength" not in request.response_schema["properties"]
+    assert "hand_strength" in request.response_schema["required"]
 
 
 def test_llm_controller_injects_identity_into_system_prompt() -> None:

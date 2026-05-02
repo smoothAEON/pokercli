@@ -3,11 +3,13 @@
 from pokercli.engine.cards import Card, standard_deck
 from pokercli.engine.evaluator import describe_rank, evaluate_cards
 from pokercli.engine.game import PokerGame
+from pokercli.engine.hand_strength import HAND_STRENGTH_BUCKETS, compute_hand_strength
 from pokercli.engine.models import (
     ActionDecision,
     ActionRecord,
     ActionType,
     GameConfig,
+    HandStrength,
     HandHistory,
     LegalAction,
     PublicTableState,
@@ -21,8 +23,11 @@ __all__ = [
     "ActionRecord",
     "ActionType",
     "Card",
+    "compute_hand_strength",
     "DealerRNG",
+    "HAND_STRENGTH_BUCKETS",
     "GameConfig",
+    "HandStrength",
     "HandHistory",
     "LegalAction",
     "PokerGame",

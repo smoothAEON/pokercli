@@ -2,6 +2,7 @@
 setlocal
 
 cd /d "%~dp0"
+set "POKER_DEBUG_LLM=1"
 
 where python >nul 2>nul
 if errorlevel 1 (

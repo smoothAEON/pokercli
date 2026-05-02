@@ -95,6 +95,10 @@ def lookup_identity(key: str | None) -> PokerIdentity | None:
     return IDENTITIES.get(key.strip().lower())
 
 
+def identity_keys() -> tuple[str, ...]:
+    return tuple(IDENTITIES)
+
+
 def list_identities() -> list[dict[str, Any]]:
     return [
         {"key": identity.key, "name": identity.name, "style": identity.style}

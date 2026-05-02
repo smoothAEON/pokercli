@@ -284,6 +284,20 @@ class PublicTableState:
 
 
 @dataclass(slots=True)
+class HandStrength:
+    current_rank: tuple[int, ...] | None
+    current_label: str
+    potential_by_river: dict[str, float]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "current_rank": list(self.current_rank) if self.current_rank is not None else None,
+            "current_label": self.current_label,
+            "potential_by_river": dict(self.potential_by_river),
+        }
+
+
+@dataclass(slots=True)
 class SeatView:
     seat: int
     player_name: str
@@ -295,6 +309,7 @@ class SeatView:
     legal_actions: list[LegalAction]
     table: PublicTableState
     session_memory: list[str]
+    hand_strength: HandStrength
 
     def to_prompt_payload(self) -> dict[str, Any]:
         return {
@@ -306,6 +321,7 @@ class SeatView:
             "legal_actions": [action.to_dict() for action in self.legal_actions],
             "table": self.table.to_dict(),
             "session_memory": list(self.session_memory),
+            "hand_strength": self.hand_strength.to_dict(),
         }
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from pokercli.agents import HumanController
-from pokercli.engine import ActionType, LegalAction, PublicTableState, SeatView, Street
+from pokercli.engine import ActionType, LegalAction, PublicTableState, SeatView, Street, compute_hand_strength
 from pokercli.engine.cards import Card
 
 
@@ -13,18 +13,20 @@ def make_view(
 ) -> SeatView:
     if legal_actions is None:
         legal_actions = [LegalAction(ActionType.CHECK), LegalAction(ActionType.BET, min_total=100, max_total=1_000)]
+    hole_cards = (Card.from_code("As"), Card.from_code("Kd"))
+    board = (Card.from_code("2c"), Card.from_code("7d"), Card.from_code("Jh"))
     return SeatView(
         seat=0,
         player_name="Seat 1",
         session_id="session-1",
         hand_no=3,
-        hole_cards=(Card.from_code("As"), Card.from_code("Kd")),
+        hole_cards=hole_cards,
         stack=1_000,
         to_call=to_call,
         legal_actions=legal_actions,
         table=PublicTableState(
             street=Street.FLOP,
-            board=(Card.from_code("2c"), Card.from_code("7d"), Card.from_code("Jh")),
+            board=board,
             pot=300,
             current_bet=0,
             button_seat=1,
@@ -32,6 +34,7 @@ def make_view(
             actions=[],
         ),
         session_memory=[],
+        hand_strength=compute_hand_strength(hole_cards, board),
     )
 
 
